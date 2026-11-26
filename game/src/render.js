@@ -109,10 +109,10 @@ export function createRenderer(canvas) {
     drawRidge(state, 0.45, 52, ridgePal[2][0], ridgePal[2][1], false, sunLeft, horizonY);
     const hz = level.groundFog < 0.5 ? 0.6 : 0.16; // L1 morning haze: wash the ridge green out of the cover shot
     const haze = ctx.createLinearGradient(0, horizonY - 160, 0, horizonY + 34);
-    haze.addColorStop(0, 'rgba(207,227,242,0)');
-    haze.addColorStop(0.25, `rgba(207,227,242,${hz})`);
-    haze.addColorStop(0.75, `rgba(207,227,242,${hz})`);
-    haze.addColorStop(1, 'rgba(207,227,242,0)');
+    haze.addColorStop(0, 'rgba(226,232,238,0)');
+    haze.addColorStop(0.25, `rgba(226,232,238,${hz})`);
+    haze.addColorStop(0.75, `rgba(226,232,238,${hz})`);
+    haze.addColorStop(1, 'rgba(226,232,238,0)');
     ctx.fillStyle = haze;
     ctx.fillRect(0, horizonY - 160, W, 194);
     ctx.restore();
@@ -389,10 +389,11 @@ export function createRenderer(canvas) {
     for (const wp of upcoming) {
       const p = mapPoint(wp.x, wp.z);
       if (!p) continue;
+      const fi = world.rings.length > 1 ? world.rings.indexOf(wp) / (world.rings.length - 1) : 0;
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(Math.PI / 4);
-      ctx.fillStyle = '#ff4fd8';
+      ctx.fillStyle = fi < 1 / 3 ? '#eb463c' : fi < 2 / 3 ? '#4682ff' : '#46c864';
       ctx.fillRect(-4, -4, 8, 8);
       ctx.restore();
     }
@@ -886,7 +887,7 @@ export function createRenderer(canvas) {
     ctx.font = '16px sans-serif';
     ctx.fillStyle = '#dbeafe';
     ctx.fillText('Five legs, five skies. Storms, gusts and traffic share the route.', CX, 220);
-    ctx.fillText('Follow the blue rings to runway B. Waypoints top up a little fuel.', CX, 244);
+    ctx.fillText('Follow the red, blue and green rings to runway B. Waypoints top up a little fuel.', CX, 244);
     ctx.fillText('C / V — switch cockpit and chase view.', CX, 268);
     ctx.textAlign = 'left';
     ctx.font = 'bold 17px sans-serif';
@@ -1006,8 +1007,9 @@ export function createRenderer(canvas) {
       ctx.fillText('CHASE VIEW  ·  C / V — cockpit', CX, H - 17);
       ctx.textAlign = 'left';
     } else {
-      drawSky(world, s);
-      drawWorld3D(world, s, false);
+      const cam = s.camRight ? { ...s, x: s.x + Math.cos(s.heading) * s.camRight, z: s.z - Math.sin(s.heading) * s.camRight } : s;
+      drawSky(world, cam);
+      drawWorld3D(world, cam, false);
       if (world.level.storm) drawRain(s);
       drawLightning(s);
       drawCockpit(world, s);

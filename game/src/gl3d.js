@@ -20,7 +20,7 @@
 
 // Deterministic 2-D value noise from integer hashing (same as render.js —
 // duplicated here so this module is self-contained).
-import { MAP, coastX, district, distToRoute, forestAt, islandAt } from './map.js';
+import { MAP, coastX, district, distToRoute, forestAt, islandAt, lakeR } from './map.js';
 
 export function hash2(ix, iz) {
   let h = (ix * 374761393 + iz * 668265263) | 0;
@@ -317,7 +317,7 @@ export function extrudePlanform(mesh, pts, yTop, yBot, cTop, cSide) {
   }
 }
 
-export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1) {
+export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1, em = 0) {
   const phi = (1 + Math.sqrt(5)) / 2;
   const raw = [
     [-1, phi, 0], [1, phi, 0], [-1, -phi, 0], [1, -phi, 0],
@@ -335,7 +335,7 @@ export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1) {
     [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
   ];
   for (const [a, b, cc] of faces) {
-    tri(mesh, v[a][0], v[a][1], v[a][2], v[b][0], v[b][1], v[b][2], v[cc][0], v[cc][1], v[cc][2], c, alpha);
+    tri(mesh, v[a][0], v[a][1], v[a][2], v[b][0], v[b][1], v[b][2], v[cc][0], v[cc][1], v[cc][2], c, alpha, em);
   }
 }
 
@@ -523,20 +523,20 @@ export function terrainFaceColor(world, wx, wz, h) {
       const rr = isl.d / isl.island.r;
       const t = 1 - sstep(0.55, 0.9, rr + mot * 0.05);
       const land = mix3(shadeArr([216, 198, 158], 1 + fine * 0.05), shadeArr([92, 140, 82], 1 + mot * 0.12 + fine * 0.05), t);
-      c = mix3(c, land, sstep(0, 12, h));
+      c = mix3(c, land, sstep(0, 12, h + 4 * vnoise2(wx * 0.003 + 4, wz * 0.003 - 8))); // wiggly island waterline, never a staircase
     }
     if (h > 9 && fo > 0) c = mix3(c, canopy, fo * 0.85);
-    const sh = sstep(-120, -10, wx - coastX(wz)); // shallows grading into the mainland shore (v15: no hard waterline)
+    const sh = sstep(-200, 80, wx - coastX(wz) + 90 * vnoise2(wx * 0.003 + 4, wz * 0.003 - 8)); // shallows grading into a wiggly waterline (v16: no hard step, no staircase)
     if (sh > 0) c = mix3(c, shadeArr([198, 176, 132], 1 + fine * 0.04), sh * 0.85);
     return c;
   }
   if (dist === 'beach') {
-    const d = wx - coastX(wz); // wide blends (>1 quad) so the shore never staircases into squares
+    const d = wx - coastX(wz) + 90 * vnoise2(wx * 0.003 + 4, wz * 0.003 - 8); // wiggly waterline: the shore curves, never a staircase
     const sea = shadeArr([40, 118, 178], 1 + fine * 0.05);
     const wet = shadeArr([198, 176, 132], 1 + fine * 0.04);
     const dune = Math.sin((wx * 0.35 + wz) * 0.03 + mot * 1.6);
     const dry = shadeArr([216, 190, 138], 1 + dune * 0.07 + mot * 0.06 + fine * 0.04);
-    return mix3(mix3(sea, wet, sstep(-120, 40, d)), dry, sstep(40, 320, d));
+    return mix3(mix3(sea, wet, sstep(-200, 80, d)), dry, sstep(80, 480, d));
   }
   if (dist === 'city') {
     const mx = ((wx % 90) + 90) % 90;
@@ -583,16 +583,18 @@ export function terrainFaceColor(world, wx, wz, h) {
     }
     if (Math.abs(slope) > 0.55 && high > 60) c = shadeArr([108, 102, 92], light * (1 + mot * 0.06 + grain * 0.03));
     if (fo > 0) c = mix3(c, canopy, fo * 0.85);
-    if (high < 60 && dr < 16) {
-      const river = 1 - sstep(9, 14, dr);
-      const bank = (1 - sstep(13, 16, dr)) * (1 - river);
+    if (high < 60 && dr < 45) {
+      const dw = dr + 7 * vnoise2(wx * 0.0025 + 9, wz * 0.0025 - 4);
+      const w = 16 + 14 * (0.5 + 0.5 * vnoise2(wx * 0.002 + 3, wz * 0.002 - 7)); // width varies: pools and narrows, a winding stream
+      const river = 1 - sstep(w, w + 8, dw);
+      const bank = (1 - sstep(w + 5, w + 11, dw)) * (1 - river);
       c = mix3(c, shadeArr([198, 186, 140], light), bank);
       c = mix3(c, shadeArr([64, 128, 148], light * (1 + fine * 0.06)), river);
     }
     return c;
   }
   const lakeD = Math.hypot(wx - MAP.lake.x, wz - MAP.lake.z);
-  if (lakeD < MAP.lake.r) return shadeArr([58, 124, 158], 1 + fine * 0.08);
+  const lake = 1 - sstep(lakeR(wx, wz) - 30, lakeR(wx, wz) + 30, lakeD); // soft organic shoreline, never a quad edge
   const patch = vnoise2(wx * 0.006 + 31, wz * 0.006 + 11);
   const patchB = vnoise2(wx * 0.0035 - 17, wz * 0.0035 + 29);
   const w1 = sstep(-0.55, -0.05, patchB);
@@ -609,12 +611,15 @@ export function terrainFaceColor(world, wx, wz, h) {
   const hedge = (1 - sstep(2, 7, hd)) * (hash2(Math.floor(hx / 300) + 3, Math.floor(hz / 300) + 7) > 0.4 ? 1 : 0);
   let base = shadeArr(mix3(field, [128, 156, 92], edge * 0.6), sub * (1 + mot * 0.1 + fine * 0.05 + grain * 0.03));
   if (hedge > 0) base = mix3(base, shadeArr([74, 104, 58], sub * (1 + mot * 0.08)), hedge * 0.85);
-  if (dr < 16) {
-    const river = 1 - sstep(9, 14, dr);
-    const bank = (1 - sstep(13, 16, dr)) * (1 - river);
+  if (dr < 45) {
+    const dw = dr + 7 * vnoise2(wx * 0.0025 + 9, wz * 0.0025 - 4);
+    const w = 16 + 14 * (0.5 + 0.5 * vnoise2(wx * 0.002 + 3, wz * 0.002 - 7)); // width varies: pools and narrows, a winding stream
+    const river = 1 - sstep(w, w + 8, dw);
+    const bank = (1 - sstep(w + 5, w + 11, dw)) * (1 - river);
     base = mix3(base, shadeArr([198, 186, 140], 1), bank);
     base = mix3(base, shadeArr([64, 128, 148], 1 + fine * 0.06), river);
   }
+  if (lake > 0) base = mix3(base, shadeArr([58, 124, 158], 1 + fine * 0.08), lake);
   return fo > 0 ? mix3(base, canopy, fo * 0.85) : base;
 }
 
@@ -924,7 +929,7 @@ function buildBuilding(mesh, prop, gy, H, rwA, rwB) {
   const h3 = hash2(seed + 29, seed + 41);
   const w = (prop.kind === 'building' ? 22 : 30) * s;
   const h = (prop.kind === 'building' ? 38 : 58) * s;
-  const glassTints = [[52, 84, 124], [48, 96, 108], [66, 82, 102], [56, 102, 88], [96, 72, 52], [140, 160, 180]];
+  const glassTints = [[104, 102, 98], [100, 100, 98], [108, 106, 100], [96, 102, 94], [96, 72, 52], [140, 138, 134]]; // warm neutral glass, no blue cast (v16: the blue panels read as random blue blobs)
   const frameTints = [[198, 206, 214], [226, 220, 208], [96, 84, 70]];
   const wallTints = [[198, 172, 138], [176, 112, 84], [226, 214, 190], [170, 162, 150], [156, 92, 70], [210, 196, 158], [190, 150, 120], [120, 110, 100]];
   const glass = glassTints[Math.floor(h1 * glassTints.length) % glassTints.length];
@@ -1000,7 +1005,7 @@ export function buildProps(world) {
     if (prop.kind === 'building' || prop.kind === 'building2') {
       buildBuilding(mesh, prop, gy, H, world.runwayA, world.runwayB);
     } else if (prop.kind === 'landmark') {
-      tower(mesh, prop.x, prop.z, gy, 34, 95, 0, [52, 84, 124], [198, 206, 214], [170, 162, 150], [74, 80, 88], 12345);
+      tower(mesh, prop.x, prop.z, gy, 34, 95, 0, [78, 80, 84], [198, 206, 214], [170, 162, 150], [74, 80, 88], 12345); // v16: landmark glass neutral grey, was vivid blue [52,84,124]
       coneY(mesh, prop.x, gy + 96.4, prop.z, 1.2, 18, 5, [90, 94, 100]);
       boxAt(mesh, prop.x, gy + 97, prop.z, 8, 1.2, 8, [198, 206, 214]);
     } else if (prop.kind === 'palm') {
@@ -1051,15 +1056,20 @@ export function buildProps(world) {
   return mesh;
 }
 
+// Puff table [dx, dy, dz, scale, shade]: six overlapping puffs, bright
+// top and dark base, so a cloud reads as one 3D volume, not a flat hexagon.
+const PUFFS = [[0, 0, 0, 1, 0], [0.7, -0.18, 0.2, 0.6, -14], [-0.65, -0.12, -0.25, 0.55, -26], [0.25, 0.3, -0.05, 0.45, 6], [-0.3, 0.24, 0.18, 0.38, 2], [0.05, -0.3, 0.05, 0.7, -36]];
+function cloudPuffs(mesh, x, y, z, s, base, alpha) {
+  for (const p of PUFFS) icosahedron(mesh, x + p[0] * s, y + p[1] * s, z + p[2] * s, s * p[3], [base[0] + p[4], base[1] + p[4], base[2] + p[4]], alpha, 1); // em=1: no sun shading, so no facet lines — one soft white volume
+}
+
 export function buildClouds(world) {
   const mesh = [];
   const H = world.terrainHeight.bind(world);
   const sunDir = (world.level.sun[0] - 0.5) * 2;
   for (const cloud of world.clouds) {
     const s = cloud.s;
-    icosahedron(mesh, cloud.x, cloud.y, cloud.z, s, [245, 247, 250]);
-    icosahedron(mesh, cloud.x + s * 0.7, cloud.y - s * 0.15, cloud.z + s * 0.2, s * 0.62, [238, 241, 245]);
-    icosahedron(mesh, cloud.x - s * 0.65, cloud.y - s * 0.1, cloud.z - s * 0.25, s * 0.55, [228, 233, 238]);
+    cloudPuffs(mesh, cloud.x, cloud.y, cloud.z, s, [246, 248, 251], 1);
     const groundH = H(cloud.x, cloud.z);
     const shX = cloud.x - sunDir * (cloud.y - groundH) * 0.45;
     const r = s * 1.5;
@@ -1067,10 +1077,7 @@ export function buildClouds(world) {
   }
   if (world.level.storm) {
     for (const cloud of world.stormClouds) {
-      const s = cloud.s;
-      icosahedron(mesh, cloud.x, cloud.y, cloud.z, s, [118, 126, 138], 0.9);
-      icosahedron(mesh, cloud.x + s * 0.6, cloud.y - s * 0.12, cloud.z, s * 0.6, [102, 110, 122], 0.9);
-      icosahedron(mesh, cloud.x - s * 0.55, cloud.y - s * 0.08, cloud.z + s * 0.2, s * 0.5, [132, 140, 152], 0.9);
+      cloudPuffs(mesh, cloud.x, cloud.y, cloud.z, cloud.s, [118, 126, 138], 0.9);
     }
   }
   return mesh;
@@ -1101,7 +1108,9 @@ export function buildRings(world) {
     const vx = ny * uz - nz * uy;
     const vy = nz * ux - nx * uz;
     const vz = nx * uy - ny * ux;
-    const col = ring.passed ? [120, 220, 140] : ring === next ? [255, 255, 255] : [125, 184, 255];
+    const f = rings.length > 1 ? i / (rings.length - 1) : 0; // route thirds: red, blue, green
+    let col = ring.passed ? [120, 220, 140] : f < 1 / 3 ? [235, 70, 60] : f < 2 / 3 ? [70, 130, 255] : [70, 190, 100];
+    if (ring === next) col = mix3(col, [255, 255, 255], 0.45); // next ring brighter, still its third's colour
     const R = 18;
     const rIn = 15.2;
     const SEG = 16;

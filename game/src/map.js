@@ -75,9 +75,16 @@ function smooth(a, b, v) {
   return t * t * (3 - 2 * t);
 }
 
-/** The coastline: a wavy north-south line on the west side of the map. */
+/** The coastline: a curvy north-south line on the west side of the map. */
 export function coastX(z) {
-  return -2900 + 320 * Math.sin(z * 0.0004) + 150 * Math.sin(z * 0.0011);
+  return -2900 + 320 * Math.sin(z * 0.0004) + 150 * Math.sin(z * 0.0011) + 260 * Math.sin(z * 0.00021 + 2);
+}
+
+/** The lake's radius at (x, z): warped by noise so the shoreline is an
+ * organic curve, never a circle sampled into squares. */
+export function lakeR(x, z) {
+  const a = Math.atan2(z - MAP.lake.z, x - MAP.lake.x);
+  return MAP.lake.r * (1 + 0.22 * vnoise2(Math.cos(a) * 1.4 + 5, Math.sin(a) * 1.4 - 3) + 0.1 * vnoise2(Math.cos(a) * 3.1 - 7, Math.sin(a) * 3.1 + 2));
 }
 
 /** Forest cover at (x, z): 0 outside the zones, 1 deep inside (soft edge). */
@@ -168,7 +175,7 @@ export function mapBaseHeight(x, z, distRoute = Infinity) {
   // fields: rolling green countryside, forest patches, one lake.
   let h = 10 + n1 * 12 + n2 * 4 + n3 * 3;
   const lakeD = Math.hypot(x - MAP.lake.x, z - MAP.lake.z);
-  if (lakeD < MAP.lake.r) h = 2;
+  if (lakeD < lakeR(x, z)) h = 2;
   // A river runs down the mountain-valley route where it crosses fields.
   if (distRoute < 42) h = Math.min(h, 6);
   return h;

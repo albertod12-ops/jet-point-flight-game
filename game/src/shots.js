@@ -205,6 +205,7 @@ export function stageShot(name, world) {
         if (events & EVENT_OVER) break;
       }
     }
+    world.state.camRight = 32; // v16: cockpit camera 32 m right on final, so the runway lines clear the centre post
     return { screen: SCREEN_PLAY, best: world.state.score, view: 'FPP' };
   }
   // Default 'play': 25 seconds into the leg, mid-route, waypoints ahead.
