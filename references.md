@@ -263,3 +263,54 @@ flat white tube, wing a flat white triangle, far wing a separate blade.
   pushed the waypoint ring to the frame edge and the jet sprite is drawn in
   fixed screen coordinates anyway, so the camera cannot fix the far wing;
   only the drawing can. Camera stays 24/42 (v4).
+
+## v10 — ONE GTA-style map (user 20:40 WIB 26 Nov: "Buat 1 map seperti gta. Dan jadikan itu map utama dari semua level")
+
+- One map, five routes. Before v10 each leg was its own themed world
+  (city / beach / sea / mountain / desert). Now `game/src/map.js` defines
+  ONE coherent place, GTA V style (Los Santos + Blaine County): a city
+  around the main airport, a beach + open sea with fixed islands to the
+  west, forested mountains to the north and north-east, desert to the
+  east, rolling fields + a lake in the centre. The five legs are five
+  ROUTES inside it (each starts at the main airport, lands on a strip in
+  another district): leg 1 north to Metro Field, leg 2 west over the
+  beach to the Island Strip, leg 3 north-west over the sea to the North
+  Island Strip, leg 4 north-east up the mountain valley to the Alpine
+  Strip, leg 5 east to the Desert Strip. Adventure free-roams the same map.
+- The map is seed-independent (integer-hash noise, fixed islands and
+  districts), so it is literally the same place every time. Routes are
+  built in leg-local coords (u lateral, v along) and rotated into map
+  coords; landing, overshoot, corridor, ring-miss and traffic-crossing
+  logic all run in the leg/runway frame, not axis-aligned.
+- TPP shot (the v9 complaint: "map nya masih terlalu jelek"): the v9
+  mountains were ~500 m walls that filled the whole frame with NO SKY.
+  v10 caps the peaks at ~200 m with a wide valley along the route, so
+  the jet cruises near ridge height and blue sky + horizon show above
+  the forested slopes (REF 1). The chase camera is pulled back/up
+  (side 16, back 20, up 4) and pitched slightly up (+0.02). Terrain is
+  50 m cells on the mountain leg (100 m elsewhere) + ~220 forest pines
+  on the slopes, so the slopes read as textured forest, not giant flat
+  triangles. The TPP staging now waits for ring 5+ (in the mountains —
+  the first render broke at ring 1, still over the city/fields).
+- City (the v9 complaint: windowless grey boxes, pale ground, no street
+  grid): buildings now have light glass bands + lit windows, six varied
+  wall colours, rooftop boxes; the terrain paints a visible street grid
+  (dark roads, light sidewalks, parks, parking lots). Building scale was
+  a bug: the grid's `s` reached 1.81, so towers hit 105 m and hid the
+  rings from the cockpit — now capped at ~52 m, and the city leg's rings
+  sit at 140 m, above the rooftops.
+- Runway (refs 3-4): numbers in 7-segment digits at both thresholds
+  (from the runway heading: 36/18 north, 09/27 east, etc.), a parallel
+  taxiway with a yellow centreline, mowed-grass stripes around the
+  strip, edge lights, blast-pad chevrons, PAPI + approach lights.
+- Storm shot: staging now waits for ring 6+ (over the open sea — the
+  first render stopped at 30 s, still over the fields) and a near-level
+  frame; storm clouds lightened (they read as floating rocks before).
+- Landing shot: stages a stable final approach (the jet is teleported
+  to 2500 m out on the centreline, 120 m up, lined up) and breaks at
+  700 m out, level — the first render flew to touchdown and showed the
+  LANDED overlay; the second caught the jet banking with the passed
+  ring filling the frame edges as green bands.
+- Fields: muted greens in 300 m blocks (the 150 m tan/green/grey blocks
+  read as a checkerboard).
+- Jet and cockpit UNTOUCHED (both approved by the user).
