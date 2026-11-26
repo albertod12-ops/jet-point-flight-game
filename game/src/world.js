@@ -91,6 +91,20 @@ export function createWorld(random, levelIndex) {
     return pts[pts.length - 1].x;
   }
 
+  // Islands for the sea leg (terrain humps + a few palms on top). v5:
+  // generated BEFORE the props, so sea-leg props can sit ON islands —
+  // v4's storm shot had green trees standing on open water.
+  const islands = [];
+  if (level.theme === 'sea' || adventure) {
+    for (let i = 0; i < 7; i += 1) {
+      islands.push({
+        x: random.range(-700, 700),
+        z: random.range(600, WORLD.legLength),
+        r: random.range(120, 260),
+        h: random.range(24, 60),
+      });
+    }
+  }
   // --- scenery props beside the route ---
   const props = [];
   const propCount = level.theme === 'city' ? 150 : 110;
@@ -99,6 +113,20 @@ export function createWorld(random, levelIndex) {
     const side = random.next() < 0.5 ? -1 : 1;
     const x = side * random.range(30, 320);
     const kind = random.next();
+    // Sea leg: props live on islands only (palms + huts), never on open
+    // water — a tree standing on the sea is the v4 storm-shot defect.
+    if (level.theme === 'sea' && islands.length > 0) {
+      const isl = islands[Math.floor(random.next() * islands.length)];
+      const a = random.range(0, Math.PI * 2);
+      const rr = random.range(0, isl.r * 0.55);
+      props.push({
+        x: isl.x + Math.cos(a) * rr,
+        z: isl.z + Math.sin(a) * rr,
+        kind: kind < 0.6 ? 'palm' : 'hut',
+        s: random.range(0.7, 1.6),
+      });
+      continue;
+    }
     props.push({
       x,
       z,
@@ -114,18 +142,6 @@ export function createWorld(random, levelIndex) {
                 : kind < 0.5 ? 'tree' : 'house',
       s: random.range(0.7, 1.6),
     });
-  }
-  // Islands for the sea leg (terrain humps + a few palms on top).
-  const islands = [];
-  if (level.theme === 'sea' || adventure) {
-    for (let i = 0; i < 7; i += 1) {
-      islands.push({
-        x: random.range(-700, 700),
-        z: random.range(600, WORLD.legLength),
-        r: random.range(120, 260),
-        h: random.range(24, 60),
-      });
-    }
   }
   // Clouds drift above the route.
   const clouds = [];

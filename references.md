@@ -113,3 +113,14 @@ from these, not from memory.
   runway or cloud shadow may ever appear above the tilted horizon line.
   Verified in all 4 new screenshots: sky above, ground below, mountains on
   the horizon, nothing floating.
+
+## v5 — the user's OWN references (18:07 WIB 26 Nov, user order: "Rubah seluruh model pesawat nya, dan jadikan referensi ku")
+
+The user sent 8 photos and rejected v4 ("Pakailah referensi ku. Buat semirip mungkin. Jelek banget ituuuu punyamu"). The v4 jet model was DELETED entirely and rebuilt from scratch; v4's diagonal axis + teal livery are gone.
+
+- **Ref 1 — two FA-50s in formation (three-quarter side view, flying)**: THE jet model. Flat horizontal flight, nose right, plain light grey, long pointed nose, tandem bubble canopy (dark glass), ONE tall swept fin, swept wings with wingtip rails, single-engine tail. Applied in v5 `drawJetTPP`: the jet is drawn horizontally across the frame (fuselage axis y=445, nose x=935, tail x=365), plain grey gradient (bright spine, dark belly), no teal anywhere; canopy is a long dark tandem bubble with a specular streak and a two-seat split line; ONE fin, narrow base, swept, with a small dark tail marking; near wing broad-chord sweeping down-right with a wingtip rail + missile and underwing stores; far wing tucked behind the fuselage; twin nozzles with subtle petal rings + afterburner glow; nav lights red/green/white. Three visual iterations (fin too sail-like → narrowed; wing too needle-like → broadened; panel lines too segmented → removed).
+- **Ref 2 — FA-50s parked on the tarmac (side view)**: fuselage proportions, radome (slightly darker nose cone + panel line), landing gear, underwing stores. Applied: radome shading + gear struts + store pylons.
+- **Ref 3 — runway from the air**: threshold piano keys, centreline dashes, grass both sides, taxiway. Already in v4 `drawRunway` (kept): piano keys at both ends, centreline, approach lights, PAPI.
+- **Ref 4 — airliner on a runway**: runway numbers, threshold, asphalt + grass. (Numbers not drawn — the strip is small in frame; threshold + centreline + grass carry it.)
+- **Refs 5–8 — cockpits (aurora night, city night, final approach, Airbus sunset)**: the FPP cockpit was already good and is untouched in v5; these refs confirm its lighting and layout (lit glass screens below, wide windshield, horizon outside). Recorded for a future pass, not applied.
+- **v5 terrain fix (user: "mapnya jelek")**: sea-leg props no longer stand on open water — islands are generated BEFORE props and sea props (palms + huts) are placed ON islands only (world.js). Storm shot verified: island with palms + red-roof huts, no trees on the sea.
