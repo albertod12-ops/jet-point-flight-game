@@ -144,7 +144,17 @@ export function renderTris(ctx, tris, cam, sun, fogRGB, fogFar, W, H, FOCAL, HOR
       const cr = Math.round((t[9] * shade) * (1 - fogT) + fogRGB[0] * fogT);
       const cg = Math.round((t[10] * shade) * (1 - fogT) + fogRGB[1] * fogT);
       const cb = Math.round((t[11] * shade) * (1 - fogT) + fogRGB[2] * fogT);
-      draw.push([sx1, sy1, sx2, sy2, sx3, sy3, depth, cr, cg, cb, t[12]]);
+      // Overlap each triangle ~0.75 px past its edges (v15): canvas AA
+      // leaves 1 px seams at shared edges, which read as a square grid
+      // on flat terrain (the storm-shot beach). Same colour on overlap,
+      // so the painter's order stays correct.
+      const gx = (sx1 + sx2 + sx3) / 3;
+      const gy = (sy1 + sy2 + sy3) / 3;
+      const ax = (Math.abs(sx1 - gx) + Math.abs(sx2 - gx) + Math.abs(sx3 - gx)) / 3;
+      const ay = (Math.abs(sy1 - gy) + Math.abs(sy2 - gy) + Math.abs(sy3 - gy)) / 3;
+      const ex = ax > 0.5 ? 1 + 0.75 / ax : 1;
+      const ey = ay > 0.5 ? 1 + 0.75 / ay : 1;
+      draw.push([gx + (sx1 - gx) * ex, gy + (sy1 - gy) * ey, gx + (sx2 - gx) * ex, gy + (sy2 - gy) * ey, gx + (sx3 - gx) * ex, gy + (sy3 - gy) * ey, depth, cr, cg, cb, t[12]]);
     }
   }
   draw.sort((p, q) => q[6] - p[6]);
@@ -516,15 +526,17 @@ export function terrainFaceColor(world, wx, wz, h) {
       c = mix3(c, land, sstep(0, 12, h));
     }
     if (h > 9 && fo > 0) c = mix3(c, canopy, fo * 0.85);
+    const sh = sstep(-120, -10, wx - coastX(wz)); // shallows grading into the mainland shore (v15: no hard waterline)
+    if (sh > 0) c = mix3(c, shadeArr([198, 176, 132], 1 + fine * 0.04), sh * 0.85);
     return c;
   }
   if (dist === 'beach') {
-    const coast = coastX(wz);
-    if (wx < coast - 5) return shadeArr([38, 116, 168], 1 + fine * 0.1);
-    if (wx < coast + 2) return [238, 244, 238];
-    if (wx < coast + 20) return shadeArr([196, 172, 128], 1 + fine * 0.04);
+    const d = wx - coastX(wz); // wide blends (>1 quad) so the shore never staircases into squares
+    const sea = shadeArr([40, 118, 178], 1 + fine * 0.05);
+    const wet = shadeArr([198, 176, 132], 1 + fine * 0.04);
     const dune = Math.sin((wx * 0.35 + wz) * 0.03 + mot * 1.6);
-    return shadeArr([216, 190, 138], 1 + dune * 0.07 + mot * 0.06 + fine * 0.04);
+    const dry = shadeArr([216, 190, 138], 1 + dune * 0.07 + mot * 0.06 + fine * 0.04);
+    return mix3(mix3(sea, wet, sstep(-120, 40, d)), dry, sstep(40, 320, d));
   }
   if (dist === 'city') {
     const mx = ((wx % 90) + 90) % 90;

@@ -184,6 +184,29 @@ export function createWorld(random, levelIndex) {
   if (!adventure && level.id === 1) {
     props.push({ x: 150, z: 1150, kind: 'landmark', s: 1 });
   }
+  // Desert Strip airport (v15): terminal, hangars + control tower beside
+  // runway B — all |across| >= 155, clear of the strip and the western
+  // approach; reuses the city building/tower meshes, no new geometry.
+  if (!adventure && level.id === 5) {
+    for (const [dx, dz, k, s] of [[-50, -160, 'building', 0.8], [100, -165, 'hut', 2.6], [200, -155, 'hut', 2.2], [50, 180, 'landmark', 1], [-100, 170, 'building2', 0.6]]) {
+      props.push({ x: runwayB.x + dx, z: runwayB.z + dz, kind: k, s });
+    }
+  }
+  // L4 corridor forest (v15: fills the TPP shot's empty fields). FIXED
+  // hash2 positions, NOT the random scatter — a MAP.forests zone here
+  // shifted the shared random stream and a prop plane then collided with
+  // the jet on leg 4 (seed 7). These pines flank the route (never on it).
+  if (!adventure && level.id === 4) {
+    for (let i = 0; i < 120; i += 1) {
+      const u = (hash2(i, 3) - 0.5) * 1800;
+      const v = 2600 + hash2(i, 7) * 2200;
+      if (Math.abs(u) < 60) continue;
+      const p = legToMap(u, v);
+      const d = district(p.x, p.z);
+      if (d !== 'fields' && d !== 'mountain') continue;
+      props.push({ x: p.x, z: p.z, kind: 'pine', s: 0.9 + hash2(i, 11) * 1.7, forest: true });
+    }
+  }
   // Forest: pines scattered on the mountain and field slopes near the
   // route — the texture that makes the mountains read as forested (REF 1),
   // not giant flat triangles.

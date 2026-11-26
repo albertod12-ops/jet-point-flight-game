@@ -107,12 +107,14 @@ export function createRenderer(canvas) {
     drawRidge(state, 0.1, 130, ridgePal[0][0], ridgePal[0][1], false, sunLeft, horizonY);
     drawRidge(state, 0.24, 88, ridgePal[1][0], ridgePal[1][1], false, sunLeft, horizonY);
     drawRidge(state, 0.45, 52, ridgePal[2][0], ridgePal[2][1], false, sunLeft, horizonY);
-    const haze = ctx.createLinearGradient(0, horizonY - 46, 0, horizonY + 34);
+    const hz = level.groundFog < 0.5 ? 0.6 : 0.16; // L1 morning haze: wash the ridge green out of the cover shot
+    const haze = ctx.createLinearGradient(0, horizonY - 160, 0, horizonY + 34);
     haze.addColorStop(0, 'rgba(207,227,242,0)');
-    haze.addColorStop(0.55, 'rgba(207,227,242,0.16)');
+    haze.addColorStop(0.25, `rgba(207,227,242,${hz})`);
+    haze.addColorStop(0.75, `rgba(207,227,242,${hz})`);
     haze.addColorStop(1, 'rgba(207,227,242,0)');
     ctx.fillStyle = haze;
-    ctx.fillRect(0, horizonY - 46, W, 80);
+    ctx.fillRect(0, horizonY - 160, W, 194);
     ctx.restore();
   }
 

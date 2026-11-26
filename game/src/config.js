@@ -22,7 +22,7 @@ export const LEVELS = [
     sky: ['#2f6fd0', '#7fb2e5', '#bcd9f2'], sun: [0.78, 92], ridge: 'city',
     start: [0, 0], heading: 0, strip: 'Metro Field',
     wind: 4, gust: 3, storm: false, traffic: 6, weave: 400, ceiling: 320,
-    time: 300, fogFar: 2600, groundFog: 0.4, ringBase: 140,
+    time: 300, fogFar: 2600, groundFog: 0.15, ringBase: 140,
     note: 'Follow the route ribbon over downtown, land at Metro Field.',
   },
   {
