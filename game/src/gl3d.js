@@ -51,6 +51,10 @@ export function clamp(v, lo, hi) {
 export function lerp(a, b, t) {
   return a + (b - a) * t;
 }
+function sstep(a, b, v) {
+  const t = clamp((v - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+}
 
 // ---- camera -------------------------------------------------------------
 export function makeCam(x, y, z, heading, pitch, bank) {
@@ -490,16 +494,23 @@ export function terrainFaceColor(world, wx, wz, h) {
   const canopy = cn > 0.25 ? [26, 68, 36] : cn > -0.1 ? [38, 92, 46] : cn2 > 0.2 ? [52, 112, 54] : [30, 78, 40];
   for (const rw of [world.runwayA, world.runwayB]) {
     const f = runwayFrame(rw, wx, wz);
-    if (Math.abs(f.along) < 450 && Math.abs(f.across) < 13) return [88, 88, 92];
-    if (Math.abs(f.along) < 450 && f.across > 38 && f.across < 52) return [66, 66, 70];
-    if (Math.abs(f.along) < 470 && Math.abs(f.across) < 72) {
-      const stripe = Math.floor(f.along / 30) % 2 === 0 ? 1 : 0.86;
-      return shadeArr([98, 152, 82], stripe * (1 + mot * 0.06));
+    const aa = Math.abs(f.along);
+    const ax = Math.abs(f.across);
+    if (aa < 450 && ax < 13) return shadeArr([88, 88, 92], 1 + mot * 0.05);
+    if (aa < 450 && f.across > 38 && f.across < 52) return shadeArr([66, 66, 70], 1 + mot * 0.06);
+    if (aa >= 450 && aa < 520 && ax < 13) return shadeArr([58, 58, 62], 1 + mot * 0.05);
+    if (aa < 450 && ax >= 11 && ax < 17) {
+      const g = mix3([54, 54, 58], [98, 152, 82], sstep(14, 17, ax));
+      return shadeArr(g, 1 + mot * 0.06);
     }
+    if (aa < 470 && ax < 72) return shadeArr([98, 152, 82], 1 + mot * 0.08 + fine * 0.04);
   }
   if (dist === 'sea') {
     let c = shadeArr([40, 118, 178], 1 + fine * 0.1 + mot * 0.05);
-    if (h > 2) c = h < 9 ? shadeArr([216, 198, 158], 1 + fine * 0.05) : shadeArr([92, 140, 82], 1 + mot * 0.12 + fine * 0.05);
+    if (h > 2) {
+      const t = sstep(7, 11, h + mot * 2);
+      c = mix3(shadeArr([216, 198, 158], 1 + fine * 0.05), shadeArr([92, 140, 82], 1 + mot * 0.12 + fine * 0.05), t);
+    }
     if (h > 9 && fo > 0) c = mix3(c, canopy, fo * 0.85);
     return c;
   }
@@ -512,24 +523,24 @@ export function terrainFaceColor(world, wx, wz, h) {
     return shadeArr([216, 190, 138], 1 + dune * 0.07 + mot * 0.06 + fine * 0.04);
   }
   if (dist === 'city') {
-    const bx = Math.floor(wx / 90);
-    const bz = Math.floor(wz / 90);
     const mx = ((wx % 90) + 90) % 90;
     const mz = ((wz % 90) + 90) % 90;
-    const blockTone = 0.92 + hash2(bx, bz) * 0.16;
-    const park = hash2(bx + 9, bz + 4) > 0.96;
-    if (park) return shadeArr([96, 138, 88], blockTone);
+    const blockTone = 0.94 + 0.08 * vnoise2(wx * 0.008 + 3, wz * 0.008 - 7);
+    const park = vnoise2(wx * 0.005 + 11, wz * 0.005 + 2) > 0.62;
+    if (park) return shadeArr([96, 138, 88], blockTone * (1 + mot * 0.06));
     if (mx < 9 || mz < 9) return shadeArr([74, 76, 80], 1 + mot * 0.04);
     if (mx < 14 || mz < 14) return shadeArr([168, 164, 152], blockTone);
-    if (hash2(bx + 21, bz + 13) > 0.9) return shadeArr([118, 120, 124], blockTone);
+    if (vnoise2(wx * 0.011 + 21, wz * 0.011 - 13) > 0.55) return shadeArr([118, 120, 124], blockTone);
     return shadeArr([146, 140, 128], blockTone * (1 + mot * 0.08));
   }
   if (dist === 'desert') {
     const dune = Math.sin((wx * 0.5 + wz * 0.8) * 0.028 + mot * 1.8);
-    const rocky = hash2(Math.floor(wx / 34), Math.floor(wz / 34)) > 0.88;
+    const rockN = vnoise2(wx * 0.021 + 7, wz * 0.021 - 3);
+    const rocky = sstep(0.42, 0.62, rockN);
     const ht = clamp((h - 18) / 24, 0, 1);
     const sand = mix3([218, 172, 114], [196, 134, 88], ht);
-    return rocky ? shadeArr([168, 118, 82], 1 + mot * 0.07) : shadeArr(sand, (1 + dune * 0.08 + mot * 0.06 + fine * 0.04 + grain * 0.03) * (dune > 0.55 ? 1.08 : 1));
+    const sandC = shadeArr(sand, (1 + dune * 0.08 + mot * 0.06 + fine * 0.04 + grain * 0.03) * (dune > 0.55 ? 1.08 : 1));
+    return mix3(sandC, shadeArr([168, 118, 82], 1 + mot * 0.07), rocky);
   }
   if (dist === 'mountain') {
     const slope = (world.terrainHeight(wx + 12, wz) - world.terrainHeight(wx - 12, wz)) / 24;
@@ -540,10 +551,10 @@ export function terrainFaceColor(world, wx, wz, h) {
     const high = h + 26 * mot;
     let c;
     if (high < 48) {
-      const fx2 = Math.floor(wx / 150);
-      const fz2 = Math.floor(wz / 150);
-      const fh = hash2(fx2, fz2);
-      const field = fh < 0.34 ? [196, 178, 110] : fh < 0.62 ? [128, 158, 88] : [96, 140, 78];
+      const patchB = vnoise2(wx * 0.004 - 17, wz * 0.004 + 29);
+      const w1 = sstep(-0.5, 0.1, patchB);
+      const w2 = sstep(0.1, 0.6, patchB);
+      const field = mix3(mix3([196, 178, 110], [128, 158, 88], w1), [96, 140, 78], w2);
       const edge = clamp(0.5 + patch * 0.9, 0, 1);
       c = shadeArr(mix3(field, [122, 152, 92], edge * 0.6), light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
     } else if (high > 118) {
@@ -556,24 +567,38 @@ export function terrainFaceColor(world, wx, wz, h) {
     }
     if (Math.abs(slope) > 0.55 && high > 60) c = shadeArr([108, 102, 92], light * (1 + mot * 0.06 + grain * 0.03));
     if (fo > 0) c = mix3(c, canopy, fo * 0.85);
-    if (high < 60 && dr < 11) c = shadeArr(dr < 6 ? [64, 128, 148] : [92, 150, 164], light * (1 + fine * 0.06));
-    else if (high < 60 && dr < 15) c = shadeArr([198, 186, 140], light);
+    if (high < 60 && dr < 16) {
+      const river = 1 - sstep(9, 14, dr);
+      const bank = (1 - sstep(13, 16, dr)) * (1 - river);
+      c = mix3(c, shadeArr([198, 186, 140], light), bank);
+      c = mix3(c, shadeArr([64, 128, 148], light * (1 + fine * 0.06)), river);
+    }
     return c;
   }
   const lakeD = Math.hypot(wx - MAP.lake.x, wz - MAP.lake.z);
   if (lakeD < MAP.lake.r) return shadeArr([58, 124, 158], 1 + fine * 0.08);
-  if (dr < 11) return shadeArr(dr < 6 ? [64, 128, 148] : [92, 150, 164], 1 + fine * 0.06);
-  if (dr < 15) return shadeArr([198, 186, 140], 1);
-  const fx = Math.floor(wx / 300);
-  const fz = Math.floor(wz / 300);
-  const fh = hash2(fx, fz);
-  const field = fh < 0.15 ? [188, 172, 116] : fh < 0.55 ? [140, 165, 96] : fh < 0.8 ? [124, 152, 88] : [112, 142, 82];
   const patch = vnoise2(wx * 0.006 + 31, wz * 0.006 + 11);
+  const patchB = vnoise2(wx * 0.0035 - 17, wz * 0.0035 + 29);
+  const w1 = sstep(-0.55, -0.05, patchB);
+  const w2 = sstep(-0.05, 0.45, patchB);
+  const w3 = sstep(0.45, 0.85, patchB);
+  const field = mix3(mix3(mix3([188, 172, 116], [140, 165, 96], w1), [124, 152, 88], w2), [112, 142, 82], w3);
   const edge = clamp(0.5 + patch * 0.9, 0, 1);
-  const sub = 0.94 + hash2(Math.floor(wx / 100) + 5, Math.floor(wz / 100) + 9) * 0.12;
-  const hedge = (((wx % 300) + 300) % 300 < 7 || ((wz % 300) + 300) % 300 < 7) && hash2(fx + 3, fz + 7) > 0.4;
-  if (hedge) return shadeArr([74, 104, 58], sub * (1 + mot * 0.08));
-  const base = shadeArr(mix3(field, [128, 156, 92], edge * 0.6), sub * (1 + mot * 0.1 + fine * 0.05 + grain * 0.03));
+  const sub = 0.94 + 0.06 * (0.5 + 0.5 * grain);
+  const hx = wx + 42 * vnoise2(wx * 0.002 + 3, wz * 0.002 - 7);
+  const hz = wz + 42 * vnoise2(wx * 0.0016 - 11, wz * 0.0016 + 5);
+  const hdx = ((hx % 300) + 300) % 300;
+  const hdz = ((hz % 300) + 300) % 300;
+  const hd = Math.min(hdx, 300 - hdx, hdz, 300 - hdz);
+  const hedge = (1 - sstep(2, 7, hd)) * (hash2(Math.floor(hx / 300) + 3, Math.floor(hz / 300) + 7) > 0.4 ? 1 : 0);
+  let base = shadeArr(mix3(field, [128, 156, 92], edge * 0.6), sub * (1 + mot * 0.1 + fine * 0.05 + grain * 0.03));
+  if (hedge > 0) base = mix3(base, shadeArr([74, 104, 58], sub * (1 + mot * 0.08)), hedge * 0.85);
+  if (dr < 16) {
+    const river = 1 - sstep(9, 14, dr);
+    const bank = (1 - sstep(13, 16, dr)) * (1 - river);
+    base = mix3(base, shadeArr([198, 186, 140], 1), bank);
+    base = mix3(base, shadeArr([64, 128, 148], 1 + fine * 0.06), river);
+  }
   return fo > 0 ? mix3(base, canopy, fo * 0.85) : base;
 }
 
@@ -671,8 +696,46 @@ export function buildRunway(world) {
   for (const rw of [world.runwayA, world.runwayB]) {
     const local = [];
     const y = 6.5;
-    quad(local, -11, y, -450, -11, y, 450, 11, y, 450, 11, y, -450, [70, 70, 74]);
+    const motAt = (lx, lz) => mottle(rw.x + lx * 0.9 + 13, rw.z + lz * 0.9 - 7);
+    for (let s = 0; s < 15; s += 1) {
+      const z0 = -450 + s * 60;
+      const z1 = z0 + 60;
+      const zm = (z0 + z1) / 2;
+      const dThr = Math.min(Math.abs(zm + 450), Math.abs(zm - 450));
+      const td = 1 - 0.18 * (1 - sstep(120, 280, dThr));
+      const m = 1 + motAt(0, zm) * 0.07;
+      quad(local, -11, y, z0, -11, y, z1, 11, y, z1, 11, y, z0, shadeArr([72, 72, 76], td * m));
+      quad(local, -3.5, y + 0.05, z0, -3.5, y + 0.05, z1, 3.5, y + 0.05, z1, 3.5, y + 0.05, z0, shadeArr([60, 60, 64], td * (1 + motAt(0, zm) * 0.08)));
+    }
+    quad(local, -10.6, y + 0.15, -450, -10.6, y + 0.15, 450, -9.4, y + 0.15, 450, -9.4, y + 0.15, -450, [238, 238, 232]);
+    quad(local, 9.4, y + 0.15, -450, 9.4, y + 0.15, 450, 10.6, y + 0.15, 450, 10.6, y + 0.15, -450, [238, 238, 232]);
+    for (const az of [-150, 150]) {
+      quad(local, -11, y + 0.2, az - 11, -11, y + 0.2, az + 11, -4, y + 0.2, az + 11, -4, y + 0.2, az - 11, [240, 240, 235]);
+      quad(local, 4, y + 0.2, az - 11, 4, y + 0.2, az + 11, 11, y + 0.2, az + 11, 11, y + 0.2, az - 11, [240, 240, 235]);
+    }
+    for (const tz of [-300, 0, 300]) {
+      quad(local, -9, y + 0.2, tz - 11, -9, y + 0.2, tz + 11, -3.5, y + 0.2, tz + 11, -3.5, y + 0.2, tz - 11, [240, 240, 235]);
+      quad(local, 3.5, y + 0.2, tz - 11, 3.5, y + 0.2, tz + 11, 9, y + 0.2, tz + 11, 9, y + 0.2, tz - 11, [240, 240, 235]);
+    }
+    for (const pz of [-480, 480]) {
+      const z0 = pz < 0 ? -510 : 450;
+      const z1 = pz < 0 ? -450 : 510;
+      quad(local, -11, y, z0, -11, y, z1, 11, y, z1, 11, y, z0, shadeArr([58, 58, 62], 1 + motAt(0, pz) * 0.06));
+    }
+    for (let s = 0; s < 3; s += 1) {
+      const z0 = -450 + s * 300;
+      const z1 = z0 + 300;
+      const m = 1 + motAt(14, (z0 + z1) / 2) * 0.06;
+      quad(local, -17, y - 0.05, z0, -17, y - 0.05, z1, -11, y - 0.05, z1, -11, y - 0.05, z0, shadeArr([54, 54, 58], m));
+      quad(local, 11, y - 0.05, z0, 11, y - 0.05, z1, 17, y - 0.05, z1, 17, y - 0.05, z0, shadeArr([54, 54, 58], m));
+    }
     quad(local, 38, y - 0.1, -450, 38, y - 0.1, 450, 52, y - 0.1, 450, 52, y - 0.1, -450, [64, 64, 68]);
+    for (const cz of [-200, 200]) {
+      quad(local, 11, y, cz - 6, 11, y, cz + 6, 38, y, cz + 6, 38, y, cz - 6, [64, 64, 68]);
+      for (let cx = 16; cx <= 34; cx += 9) {
+        quad(local, cx - 2.5, y + 0.1, cz - 0.7, cx - 2.5, y + 0.1, cz + 0.7, cx + 2.5, y + 0.1, cz + 0.7, cx + 2.5, y + 0.1, cz - 0.7, [232, 196, 60]);
+      }
+    }
     for (let z = -450 + 40; z < 450 - 30; z += 62) {
       quad(local, 44.4, y + 0.1, z - 13, 44.4, y + 0.1, z + 13, 45.6, y + 0.1, z + 13, 45.6, y + 0.1, z - 13, [232, 196, 60]);
     }

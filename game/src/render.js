@@ -769,16 +769,24 @@ export function createRenderer(canvas) {
       while (dh < -Math.PI) dh += Math.PI * 2;
       const d = Math.hypot(next.x - s.x, next.y - s.y, next.z - s.z);
       const arrow = Math.abs(dh) < 0.12 ? '▲ ON COURSE' : dh > 0 ? 'TURN RIGHT ▶' : '◀ TURN LEFT';
+      const label = `${arrow}   NEXT WP ${(d / 1000).toFixed(1)} km   ALT ${Math.round(next.y * 3.281)} FT`;
       ctx.textAlign = 'center';
-      ctx.fillStyle = Math.abs(dh) < 0.12 ? '#7be495' : '#ffd23e';
       ctx.font = 'bold 18px sans-serif';
-      ctx.fillText(`${arrow}   NEXT WP ${(d / 1000).toFixed(1)} km   ALT ${Math.round(next.y * 3.281)} FT`, CX, 108);
+      ctx.fillStyle = 'rgba(8,18,32,0.6)';
+      const lw = ctx.measureText(label).width + 28;
+      ctx.fillRect(CX - lw / 2, 86, lw, 30);
+      ctx.fillStyle = Math.abs(dh) < 0.12 ? '#7be495' : '#ffd23e';
+      ctx.fillText(label, CX, 108);
       ctx.textAlign = 'left';
     } else if (!s.over) {
+      const label = 'ALL WAYPOINTS DONE — LAND ON RUNWAY B';
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#7be495';
       ctx.font = 'bold 18px sans-serif';
-      ctx.fillText('ALL WAYPOINTS DONE — LAND ON RUNWAY B', CX, 108);
+      ctx.fillStyle = 'rgba(8,18,32,0.6)';
+      const lw = ctx.measureText(label).width + 28;
+      ctx.fillRect(CX - lw / 2, 86, lw, 30);
+      ctx.fillStyle = '#7be495';
+      ctx.fillText(label, CX, 108);
       ctx.textAlign = 'left';
     }
     if (view !== VIEW_TPP) {
