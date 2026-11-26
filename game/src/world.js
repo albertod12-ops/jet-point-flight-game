@@ -274,7 +274,7 @@ export function createWorld(random, levelIndex) {
   for (let i = 0; i < 22; i += 1) {
     const p = legToMap(cr.range(-850, 850), cr.range(tpp ? 2900 : 200, tpp ? 5200 : WORLD.legLength + 900));
     const cp = offRoute(p.x, p.z);
-    clouds.push({ x: cp[0], y: cr.range(tpp ? 160 : 240, tpp ? 270 : 380), z: cp[1], s: cr.range(22, 35) });
+    clouds.push({ x: cp[0], y: cr.range(tpp ? 200 : 240, tpp ? 310 : 380), z: cp[1], s: cr.range(tpp ? 18 : 22, tpp ? 28 : 35) });
   }
   // Two fixed clouds over the destination airport: the landing shot's
   // camera sits inside the cleared corridor, so without these the final
@@ -288,13 +288,13 @@ export function createWorld(random, levelIndex) {
     for (let i = 0; i < 18; i += 1) {
       const p = legToMap(random.range(-600, 600), random.range(300, WORLD.legLength + 600));
       const cp = offRoute(p.x, p.z);
-      stormClouds.push({ x: cp[0], y: random.range(150, 260), z: cp[1], s: random.range(40, 70) });
+      stormClouds.push({ x: cp[0], y: random.range(150, 260), z: cp[1], s: random.range(40, 55) });
     }
     // v19: storm was a wall in v18 — 14 extra -> 6, s capped 40-70.
     for (let i = 0; i < 6; i += 1) {
       const p = legToMap(cr.range(-750, 750), cr.range(300, WORLD.legLength + 600));
       const cp = offRoute(p.x, p.z);
-      stormClouds.push({ x: cp[0], y: cr.range(150, 260), z: cp[1], s: cr.range(40, 70) });
+      stormClouds.push({ x: cp[0], y: cr.range(150, 260), z: cp[1], s: cr.range(40, 55) });
     }
   }
 

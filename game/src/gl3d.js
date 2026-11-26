@@ -140,10 +140,24 @@ export function renderTris(ctx, tris, cam, sun, fogRGB, fogFar, W, H, FOCAL, HOR
         shade = 0.80 + 0.28 * Math.max(0, nx * sun[0] + ny * sun[1] + nz * sun[2]);
       }
       const tf = t[17] ? terrainFogFar : fogFar;
-      const fogT = clamp((depth - tf * 0.15) / (tf * 0.85), 0, 0.82);
-      const cr = Math.round((t[9] * shade) * (1 - fogT) + fogRGB[0] * fogT);
-      const cg = Math.round((t[10] * shade) * (1 - fogT) + fogRGB[1] * fogT);
-      const cb = Math.round((t[11] * shade) * (1 - fogT) + fogRGB[2] * fogT);
+      // v20: tris carrying per-vertex colours (clouds) are filled with a
+      // 3-stop vertical gradient through their own vertices — two faces
+      // sharing an edge evaluate (nearly) the same colour along it, so
+      // facet lines vanish. Clipped tris fall back to the flat colour.
+      let fill;
+      if (t.length > 18 && poly.length === 3) {
+        const vs = [[sy1, 18, a[2]], [sy2, 21, b[2]], [sy3, 24, c[2]]].sort((p, q) => p[0] - q[0]);
+        const gr = ctx.createLinearGradient(0, vs[0][0], 0, vs[2][0]);
+        const sp = (vs[2][0] - vs[0][0]) || 1;
+        for (const [y, k, dd] of vs) {
+          const ft = clamp((dd - tf * 0.15) / (tf * 0.85), 0, 0.82);
+          gr.addColorStop((y - vs[0][0]) / sp, `rgb(${Math.round(t[k] * shade * (1 - ft) + fogRGB[0] * ft)},${Math.round(t[k + 1] * shade * (1 - ft) + fogRGB[1] * ft)},${Math.round(t[k + 2] * shade * (1 - ft) + fogRGB[2] * ft)})`);
+        }
+        fill = gr;
+      } else {
+        const fogT = clamp((depth - tf * 0.15) / (tf * 0.85), 0, 0.82);
+        fill = `rgb(${Math.round(t[9] * shade * (1 - fogT) + fogRGB[0] * fogT)},${Math.round(t[10] * shade * (1 - fogT) + fogRGB[1] * fogT)},${Math.round(t[11] * shade * (1 - fogT) + fogRGB[2] * fogT)})`;
+      }
       // Overlap each triangle ~0.75 px past its edges (v15): canvas AA
       // leaves 1 px seams at shared edges, which read as a square grid
       // on flat terrain (the storm-shot beach). Same colour on overlap,
@@ -154,7 +168,7 @@ export function renderTris(ctx, tris, cam, sun, fogRGB, fogFar, W, H, FOCAL, HOR
       const ay = (Math.abs(sy1 - gy) + Math.abs(sy2 - gy) + Math.abs(sy3 - gy)) / 3;
       const ex = ax > 0.5 ? 1 + 0.75 / ax : 1;
       const ey = ay > 0.5 ? 1 + 0.75 / ay : 1;
-      draw.push([gx + (sx1 - gx) * ex, gy + (sy1 - gy) * ey, gx + (sx2 - gx) * ex, gy + (sy2 - gy) * ey, gx + (sx3 - gx) * ex, gy + (sy3 - gy) * ey, depth, cr, cg, cb, t[12]]);
+      draw.push([gx + (sx1 - gx) * ex, gy + (sy1 - gy) * ey, gx + (sx2 - gx) * ex, gy + (sy2 - gy) * ey, gx + (sx3 - gx) * ex, gy + (sy3 - gy) * ey, depth, fill, 0, 0, t[12]]);
     }
   }
   draw.sort((p, q) => q[6] - p[6]);
@@ -163,7 +177,7 @@ export function renderTris(ctx, tris, cam, sun, fogRGB, fogFar, W, H, FOCAL, HOR
     if (d[10] < 1) {
       ctx.globalAlpha = d[10];
     }
-    ctx.fillStyle = `rgb(${d[7]},${d[8]},${d[9]})`;
+    ctx.fillStyle = d[7];
     ctx.beginPath();
     ctx.moveTo(d[0], d[1]);
     ctx.lineTo(d[2], d[3]);
@@ -192,9 +206,9 @@ export function faceNormal(x1, y1, z1, x2, y2, z2, x3, y3, z3) {
   return [nx, ny, nz];
 }
 
-export function tri(mesh, x1, y1, z1, x2, y2, z2, x3, y3, z3, c, alpha = 1, em = 0, tag = 0) {
+export function tri(mesh, x1, y1, z1, x2, y2, z2, x3, y3, z3, c, alpha = 1, em = 0, tag = 0, vc = 0) {
   const n = faceNormal(x1, y1, z1, x2, y2, z2, x3, y3, z3);
-  mesh.push([x1, y1, z1, x2, y2, z2, x3, y3, z3, c[0], c[1], c[2], alpha, n[0], n[1], n[2], em, tag]);
+  mesh.push([x1, y1, z1, x2, y2, z2, x3, y3, z3, c[0], c[1], c[2], alpha, n[0], n[1], n[2], em, tag, ...(vc || [])]);
 }
 
 export function quad(mesh, x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4, c, alpha = 1, em = 0) {
@@ -339,9 +353,11 @@ export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1, em = 0, bot = nul
   // the gradient runs across the cloud, not per puff — neighbouring faces
   // shade almost alike: smooth, no facet lines.
   const g = gd || [cy, r];
+  // v20: per-vertex colours — the renderer gradients each face between its
+  // own vertices, so shared edges match and facet lines disappear.
+  const gc = h => mix3(bot, c, sstep(-1.3, 1.1, (h - g[0]) / g[1]));
   const emit = (a, b, cc) => {
-    const col = bot ? mix3(bot, c, sstep(-1.3, 1.1, ((v[a][1] + v[b][1] + v[cc][1]) / 3 - g[0]) / g[1])) : c;
-    tri(mesh, v[a][0], v[a][1], v[a][2], v[b][0], v[b][1], v[b][2], v[cc][0], v[cc][1], v[cc][2], col, alpha, em);
+    tri(mesh, v[a][0], v[a][1], v[a][2], v[b][0], v[b][1], v[b][2], v[cc][0], v[cc][1], v[cc][2], bot ? gc((v[a][1] + v[b][1] + v[cc][1]) / 3) : c, alpha, em, 0, bot ? [gc(v[a][1]), gc(v[b][1]), gc(v[cc][1])].flat() : 0);
   };
   // sub: split each face into 4 at the sphere midpoints — 80 small faces
   // instead of 20 big ones, so the gradient reads smooth, not crystalline.
@@ -1076,10 +1092,10 @@ export function buildProps(world) {
 }
 
 // Puff table [dx, dy, dz, scale, shade]: six overlapping puffs.
-const PUFFS = [[0, 0, 0, 1, 0], [0.7, -0.18, 0.2, 0.6, -7], [-0.65, -0.12, -0.25, 0.55, -13], [0.25, 0.3, -0.05, 0.45, 3], [-0.3, 0.24, 0.18, 0.38, 1], [0.05, -0.3, 0.05, 0.7, -18], [1.05, -0.05, 0.3, 0.42, -10], [-1.0, 0.05, -0.2, 0.45, -9], [0.15, 0.42, 0.1, 0.4, 5]];
+const PUFFS = [[0, 0, 0, 1, 0], [0.7, -0.18, 0.2, 0.6, -3], [-0.65, -0.12, -0.25, 0.55, -6], [0.25, 0.3, -0.05, 0.45, 2], [-0.3, 0.24, 0.18, 0.38, 1], [0.05, -0.3, 0.05, 0.7, -9], [1.05, -0.05, 0.3, 0.42, -5], [-1.0, 0.05, -0.2, 0.45, -4], [0.15, 0.42, 0.1, 0.4, 3]];
 // Cloud style (v18): user picked ref 3 MSFS deck for every level —
 // [w, h, sz, top, bot]: wide flat layered deck, blue-grey base.
-const CSTY = [[2.4, 0.42, 2.2, [240, 244, 250], [134, 150, 188]]];
+const CSTY = [[2.4, 0.42, 1.9, [240, 244, 250], [134, 150, 188]]];
 function cloudPuffs(mesh, x, y, z, s, st, alpha) {
   for (const p of PUFFS) {
     const b = p[4];
