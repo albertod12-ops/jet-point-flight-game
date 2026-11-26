@@ -314,3 +314,9 @@ flat white tube, wing a flat white triangle, far wing a separate blade.
 - Fields: muted greens in 300 m blocks (the 150 m tan/green/grey blocks
   read as a checkerboard).
 - Jet and cockpit UNTOUCHED (both approved by the user).
+
+# v11 — user 21:06 WIB 26 Nov: "mapnya coba kamu buat lebih hd, lebih realistik, lebih tidak terasa asal-asalan. Gedung-gedungnya coba buat lebih bagus lagi, seperti gedung yang bagus"
+- Buildings are the fix: v10's were plain boxes with ONE glass band. v11 gives every building a real window grid — glass towers get a curtain-wall field with frame mullions + floor slabs; concrete/brick towers get per-floor glass ribbon bands + mullions on a warm wall (sandstone / terracotta / cream / brick); stepped towers (wide base + narrower top); a dark plinth; a parapet rim; rooftop AC/antenna; parked cars on the street beside each building. Facade = one shared helper per face (bottom-left corner + horizontal unit, u×v = outward normal).
+- Map HD (no new triangles): mountain forest gets a second, finer noise octave (patchy canopy, not one flat green); fields get 100 m sub-block tones inside the 300 m parcels.
+- Jet + cockpit UNTOUCHED (both approved). TPP/storm/landing shots unchanged (landing byte-identical to v10; TPP/storm differ only in the terrain-colour tweaks).
+- Cost: props 14.4k → 85.3k tris (buildings ~200 tris each); frame ~90k tris, stub render ~210 ms (was ~93 ms). Dossier text 160,637 / 163,840 cap — 3,203 chars of headroom left; any v12 must be code-neutral or delete first.

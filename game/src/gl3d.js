@@ -653,7 +653,10 @@ export function terrainFaceColor(world, wx, wz, h) {
       c = shadeArr(patch > 0.1 ? [104, 98, 88] : [62, 100, 62], light * (1 + mot * 0.08 + fine * 0.04));
     } else {
       const forest = patch > 0 ? [84, 132, 80] : [96, 146, 86];
-      c = shadeArr(forest, light * (1 + mot * 0.12 + fine * 0.05));
+      // Second, finer octave: the forest reads as patchy canopy, not one
+      // flat green — the "HD" texture the v11 brief asks for.
+      const fine2 = vnoise2(wx * 0.03 + 3, wz * 0.03 - 8);
+      c = shadeArr(forest, light * (1 + mot * 0.12 + fine * 0.05 + fine2 * 0.06));
       if (patch2 > 0.55) c = shadeArr(c, 0.88);
     }
     // The valley river follows the route.
@@ -674,7 +677,10 @@ export function terrainFaceColor(world, wx, wz, h) {
   const field = fh < 0.15 ? [188, 172, 116] : fh < 0.55 ? [140, 165, 96] : fh < 0.8 ? [124, 152, 88] : [112, 142, 82];
   const patch = vnoise2(wx * 0.006 + 31, wz * 0.006 + 11);
   const edge = clamp(0.5 + patch * 0.9, 0, 1);
-  return shadeArr(mix3(field, [128, 156, 92], edge * 0.6), 1 + mot * 0.1 + fine * 0.05);
+  // 100 m sub-block tone: fields read as separate parcels, not one flat
+  // 300 m slab.
+  const sub = 0.94 + hash2(Math.floor(wx / 100) + 5, Math.floor(wz / 100) + 9) * 0.12;
+  return shadeArr(mix3(field, [128, 156, 92], edge * 0.6), sub * (1 + mot * 0.1 + fine * 0.05));
 }
 
 // The terrain as a real 3D heightmap mesh: a grid over the whole leg,
@@ -862,6 +868,127 @@ export function buildRunway(world) {
 // Scenery props as real 3D low-poly meshes (GTA-low): buildings are boxes,
 // trees are cones/octahedra on trunks, palms have fronds, huts have prism
 // roofs. Positioned on the terrain, scaled by prop.s.
+// ---- facades ------------------------------------------------------------
+// A building that reads as a real building at 300-600 m, not a box with a
+// stripe: a window grid — glass towers get a curtain-wall field with
+// frame mullions + floor slabs, concrete/brick towers get per-floor glass
+// bands + mullions on a warm wall — plus a dark plinth, a parapet rim,
+// rooftop AC/antenna and parked cars on the street beside it. One helper
+// draws one face from its bottom-left corner o and horizontal unit u
+// (u×v is the outward normal, v = +y), so windings come out right.
+function facade(mesh, o, u, W, H, cols, rows, mode, glass, frame, seed) {
+  const q = (x0, y0, x1, y1, c, off = 0.15, em = 0) => {
+    const nx = -u[1] * off;
+    const nz = u[0] * off;
+    const a = [o[0] + u[0] * x0 + nx, o[1] + y0, o[2] + u[1] * x0 + nz];
+    const b = [o[0] + u[0] * x1 + nx, o[1] + y0, o[2] + u[1] * x1 + nz];
+    const c2 = [o[0] + u[0] * x1 + nx, o[1] + y1, o[2] + u[1] * x1 + nz];
+    const d = [o[0] + u[0] * x0 + nx, o[1] + y1, o[2] + u[1] * x0 + nz];
+    quad(mesh, a[0], a[1], a[2], b[0], b[1], b[2], c2[0], c2[1], c2[2], d[0], d[1], d[2], c, 1, em);
+  };
+  if (mode === 0) q(0.8, 1.0, W - 0.8, H - 0.8, glass); // curtain-wall glass field
+  const cw = W / cols;
+  const rh = H / rows;
+  for (let i = 0; i <= cols; i += 1) q(i * cw - 0.25, 0, i * cw + 0.25, H, frame); // mullions
+  if (mode === 0) {
+    for (let j = 0; j <= rows; j += 1) q(0, j * rh - 0.35, W, j * rh + 0.35, frame); // floor slabs
+  } else {
+    for (let j = 0; j < rows; j += 1) q(1.4, j * rh + 1.0, W - 1.4, (j + 1) * rh - 1.0, glass); // ribbon windows
+  }
+  // A few lit windows (warm), hash-placed in random cells, proud of the grid.
+  for (let k = 0; k < 3; k += 1) {
+    const hx = hash2(seed + k * 17, seed + k * 31);
+    const hy = hash2(seed + k * 43, seed + k * 7);
+    const ci = Math.floor(hx * cols);
+    const ri = Math.floor(hy * rows);
+    q(ci * cw + cw * 0.28, ri * rh + rh * 0.28, ci * cw + cw * 0.72, ri * rh + rh * 0.72,
+      hx > 0.82 ? [220, 232, 255] : [255, 196, 96], 0.3, 1);
+  }
+}
+
+// One tower: box + a window grid on all four faces + parapet rim +
+// hash-gated rooftop AC / antenna. gy = ground height at the tower.
+function tower(mesh, x, z, gy, w, h, mode, glass, frame, wall, roof, seed) {
+  const hw = w / 2;
+  boxAt(mesh, x, gy + h / 2, z, w, h, w, [roof, wall, wall, wall, wall, wall]);
+  const cols = Math.max(4, Math.min(6, Math.round(w / 5.5)));
+  const rows = Math.max(4, Math.min(7, Math.round(h / 6.5)));
+  const y0 = gy + 3; // the facade starts above the dark plinth
+  facade(mesh, [x + hw, y0, z + hw], [0, -1], w, h - 3, cols, rows, mode, glass, frame, seed);
+  facade(mesh, [x - hw, y0, z - hw], [0, 1], w, h - 3, cols, rows, mode, glass, frame, seed + 101);
+  facade(mesh, [x - hw, y0, z + hw], [1, 0], w, h - 3, cols, rows, mode, glass, frame, seed + 202);
+  facade(mesh, [x + hw, y0, z - hw], [-1, 0], w, h - 3, cols, rows, mode, glass, frame, seed + 303);
+  // Parapet rim (slightly wider than the tower) + rooftop AC / antenna.
+  boxAt(mesh, x, gy + h + 0.7, z, w + 1.2, 1.4, w + 1.2, [roof, roof, roof, roof, roof, roof]);
+  if (hash2(seed + 7, seed + 9) > 0.55) {
+    boxAt(mesh, x + hw * 0.4, gy + h + 2.4, z - hw * 0.3, 4, 2, 3, [120, 124, 128]);
+  }
+  if (hash2(seed + 13, seed + 17) > 0.75) {
+    boxAt(mesh, x - hw * 0.35, gy + h + 5, z + hw * 0.3, 0.5, 8, 0.5, [90, 94, 100]);
+  }
+}
+
+// A full building: plinth + tower(s) + parked cars on the street beside
+// it. mode 0 = glass curtain wall, 1 = warm concrete/brick with ribbon
+// windows, 2 = stepped tower (wide base + narrower top). H = terrain
+// height at (x, z); rwA/rwB = the runways (cars never park on a strip).
+function buildBuilding(mesh, prop, gy, H, rwA, rwB) {
+  const s = prop.s;
+  const seed = Math.floor(prop.x) * 7 + Math.floor(prop.z) * 13;
+  const h1 = hash2(seed, seed + 3);
+  const h2 = hash2(seed + 11, seed + 23);
+  const h3 = hash2(seed + 29, seed + 41);
+  const w = (prop.kind === 'building' ? 22 : 30) * s;
+  const h = (prop.kind === 'building' ? 38 : 58) * s;
+  const glassTints = [[52, 84, 124], [48, 96, 108], [66, 82, 102], [56, 102, 88]];
+  const frameTints = [[198, 206, 214], [226, 220, 208], [96, 84, 70]];
+  const wallTints = [[198, 172, 138], [176, 112, 84], [226, 214, 190], [170, 162, 150], [156, 92, 70], [210, 196, 158]];
+  const glass = glassTints[Math.floor(h1 * glassTints.length) % glassTints.length];
+  const frame = frameTints[Math.floor(h2 * frameTints.length) % frameTints.length];
+  const wall = wallTints[Math.floor(h3 * wallTints.length) % wallTints.length];
+  const roof = [74, 80, 88];
+  const arch = Math.floor(h1 * 3); // 0 glass, 1 concrete, 2 stepped
+  const mode = arch === 0 ? 0 : 1;
+  // Dark plinth: the bottom 3 m, slightly wider — grounds the tower.
+  boxAt(mesh, prop.x, gy + 1.5, prop.z, w + 1.6, 3, w + 1.6, [58, 62, 68]);
+  if (arch === 2) {
+    const hb = h * 0.62;
+    const ht = h - hb;
+    tower(mesh, prop.x, prop.z, gy, w, hb, mode, glass, frame, wall, roof, seed);
+    tower(mesh, prop.x, prop.z, gy + hb, w * 0.6, ht, mode, glass, frame, wall, roof, seed + 505);
+  } else {
+    tower(mesh, prop.x, prop.z, gy, w, h, mode, glass, frame, wall, roof, seed);
+  }
+  // Parked cars on the road strip of the building's block (parallel).
+  const carCols = [[230, 230, 228], [40, 42, 46], [168, 52, 44], [52, 84, 140], [170, 176, 182], [232, 196, 60]];
+  if (hash2(seed + 51, seed + 53) > 0.5) {
+    const hc = hash2(seed + 61, seed + 67);
+    const bx = Math.floor(prop.x / 90);
+    const roadX = bx * 90 + 4.5;
+    let cx;
+    let cz;
+    let alongZ = true;
+    if (Math.abs(prop.x - roadX) > 20) { cx = roadX; cz = prop.z + (hc - 0.5) * 36; }
+    else { const bz = Math.floor(prop.z / 90); cx = prop.x + (hc - 0.5) * 36; cz = bz * 90 + 4.5; alongZ = false; }
+    let onRw = false;
+    for (const rw of [rwA, rwB]) {
+      const f = runwayFrame(rw, cx, cz);
+      if (Math.abs(f.along) < 480 && Math.abs(f.across) < 40) onRw = true;
+    }
+    if (!onRw) {
+      const cy = H(cx, cz);
+      const col = carCols[Math.floor(hash2(seed + 71, seed + 73) * carCols.length) % carCols.length];
+      if (alongZ) {
+        boxAt(mesh, cx, cy + 0.7, cz, 1.9, 1.4, 4.6, col);
+        boxAt(mesh, cx, cy + 1.65, cz - 0.3, 1.7, 0.7, 2.4, [40, 52, 66]);
+      } else {
+        boxAt(mesh, cx, cy + 0.7, cz, 4.6, 1.4, 1.9, col);
+        boxAt(mesh, cx - 0.3, cy + 1.65, cz, 2.4, 0.7, 1.7, [40, 52, 66]);
+      }
+    }
+  }
+}
+
 export function buildProps(world) {
   const mesh = [];
   const H = world.terrainHeight.bind(world);
@@ -879,49 +1006,7 @@ export function buildProps(world) {
     const gy = H(prop.x, prop.z);
     const s = prop.s;
     if (prop.kind === 'building' || prop.kind === 'building2') {
-      const w = (prop.kind === 'building' ? 22 : 30) * s;
-      const h = (prop.kind === 'building' ? 38 : 58) * s;
-      // Varied building colours (not three greys): grey, beige, brick,
-      // sand, blue-grey, white — a city that reads as a city.
-      const tones = [
-        [148, 154, 164], [196, 182, 150], [172, 110, 88],
-        [210, 198, 168], [128, 146, 164], [224, 222, 214],
-      ];
-      const tone = tones[Math.abs(Math.floor(prop.x / 7) + Math.floor(prop.z / 11)) % tones.length];
-      const roof = [96, 104, 114];
-      boxAt(mesh, prop.x, gy + h / 2, prop.z, w, h, w, [roof, tone, tone, tone, tone, tone]);
-      // Windows: a light blue-grey glass band across the middle of each
-      // side face (inset, offset out so it never z-fights the wall) + a
-      // few lit windows. The v10 first render used a near-black full-face
-      // curtain wall — the buildings read as black monoliths.
-      const glass = [108, 130, 154];
-      const gy0 = gy + h * 0.25;
-      const gy1 = gy + h * 0.8;
-      const inset = 3;
-      const o = 0.15;
-      const hw = w / 2;
-      // +x face
-      quad(mesh, prop.x + hw + o, gy0, prop.z - hw + inset, prop.x + hw + o, gy1, prop.z - hw + inset, prop.x + hw + o, gy1, prop.z + hw - inset, prop.x + hw + o, gy0, prop.z + hw - inset, glass);
-      // -x face
-      quad(mesh, prop.x - hw - o, gy0, prop.z + hw - inset, prop.x - hw - o, gy1, prop.z + hw - inset, prop.x - hw - o, gy1, prop.z - hw + inset, prop.x - hw - o, gy0, prop.z - hw + inset, glass);
-      // +z face
-      quad(mesh, prop.x - hw + inset, gy0, prop.z + hw + o, prop.x + hw - inset, gy0, prop.z + hw + o, prop.x + hw - inset, gy1, prop.z + hw + o, prop.x - hw + inset, gy1, prop.z + hw + o, glass);
-      // -z face
-      quad(mesh, prop.x + hw - inset, gy0, prop.z - hw - o, prop.x - hw + inset, gy0, prop.z - hw - o, prop.x - hw + inset, gy1, prop.z - hw - o, prop.x + hw - inset, gy1, prop.z - hw - o, glass);
-      // Lit windows: warm, emissive, a few per building, hash-placed.
-      const lit = [255, 200, 100];
-      for (let k = 0; k < 3; k += 1) {
-        const hx = hash2(Math.floor(prop.x) + k * 13, Math.floor(prop.z) + k * 7);
-        const hz = hash2(Math.floor(prop.x) + k * 29, Math.floor(prop.z) + k * 3);
-        const wy = gy + 6 + hx * (h - 12);
-        const wz = prop.z - hw + inset + hz * (w - 2 * inset);
-        const wx = prop.x + hw + o + 0.1;
-        quad(mesh, wx, wy - 1.2, wz - 1.2, wx, wy + 1.2, wz - 1.2, wx, wy + 1.2, wz + 1.2, wx, wy - 1.2, wz + 1.2, lit, 1, 1);
-      }
-      // Rooftop box (AC unit / penthouse) for silhouette variety.
-      if (hash2(Math.floor(prop.x / 3), Math.floor(prop.z / 5)) > 0.5) {
-        boxAt(mesh, prop.x, gy + h + 2, prop.z, w * 0.4, 4, w * 0.4, [tone, tone, tone, tone, tone, tone]);
-      }
+      buildBuilding(mesh, prop, gy, H, world.runwayA, world.runwayB);
     } else if (prop.kind === 'palm') {
       const h = 16 * s;
       cylinderY(mesh, prop.x, gy + h / 2, prop.z, 0.9 * s, h, 6, [107, 74, 43]);
