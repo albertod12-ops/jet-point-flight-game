@@ -30,7 +30,6 @@ function lerp(a, b, t) {
 function mixColor(c1, c2, t) {
   return `rgb(${Math.round(lerp(c1[0], c2[0], t))},${Math.round(lerp(c1[1], c2[1], t))},${Math.round(lerp(c1[2], c2[2], t))})`;
 }
-// Array version of mixColor (v8): blend two [r,g,b] colours, keep an array.
 function mixArr(c1, c2, t) {
   return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
 }
@@ -41,10 +40,6 @@ function fmt(n, digits = 0) {
   return n.toFixed(digits);
 }
 
-// Deterministic 2-D value noise from integer hashing — no RNG state, so the
-// same world point always shades the same and screenshots stay reproducible.
-// v3: the ground is MOTTLED with this (fine grain + broad patches), the way
-// real aerial photos are — never one flat colour per band (the v2 "map jelek").
 function hash2(ix, iz) {
   let h = (ix * 374761393 + iz * 668265263) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -63,7 +58,6 @@ function vnoise2(x, z) {
   const d = hash2(ix + 1, iz + 1);
   return (a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz) * 2 - 1;
 }
-// Darken an rgba() colour string by a factor (ridge face shading, v7).
 function darkRgba(rgba, f) {
   const m = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(rgba);
   if (!m) return rgba;
@@ -86,7 +80,6 @@ export function createRenderer(canvas) {
     g.addColorStop(1, hor);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
-    // Sun with a soft halo.
     const sunX = W * level.sun[0];
     const sunY = level.sun[1];
     const halo = ctx.createRadialGradient(sunX, sunY, 8, sunX, sunY, 130);
@@ -99,11 +92,6 @@ export function createRenderer(canvas) {
     ctx.beginPath();
     ctx.arc(sunX, sunY, 30, 0, Math.PI * 2);
     ctx.fill();
-    // Distant ridges + haze sit ON the tilted horizon (v4): the same
-    // rotated frame as the ground, so the ridge bases meet the ground's
-    // top edge and no mountain floats in the sky when the jet banks.
-    // v8: ridge colours follow the level's ridge palette — green mountains in a
-    // desert-dusk leg (v7 shot 4) were off-theme. v10: keyed by level.ridge.
     const ridgePalettes = {
       desert: [['rgba(122,84,58,0.8)', 'rgba(178,128,88,0.8)'], ['rgba(96,64,44,0.88)', 'rgba(150,102,66,0.88)'], ['rgba(72,46,32,0.92)', 'rgba(122,80,52,0.92)']],
       sea: [['rgba(70,88,88,0.8)', 'rgba(116,134,132,0.8)'], ['rgba(52,68,68,0.88)', 'rgba(92,110,108,0.88)'], ['rgba(36,50,50,0.92)', 'rgba(70,88,86,0.92)']],
@@ -119,7 +107,6 @@ export function createRenderer(canvas) {
     drawRidge(state, 0.1, 130, ridgePal[0][0], ridgePal[0][1], false, sunLeft, horizonY);
     drawRidge(state, 0.24, 88, ridgePal[1][0], ridgePal[1][1], false, sunLeft, horizonY);
     drawRidge(state, 0.45, 52, ridgePal[2][0], ridgePal[2][1], false, sunLeft, horizonY);
-    // Haze band hugging the horizon: depth between sky and ground.
     const haze = ctx.createLinearGradient(0, horizonY - 46, 0, horizonY + 34);
     haze.addColorStop(0, 'rgba(207,227,242,0)');
     haze.addColorStop(0.55, 'rgba(207,227,242,0.16)');
@@ -129,20 +116,9 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  // Distant ridges, v8: an ORGANIC ridgeline, not triangles. The silhouette
-  // is a multi-octave noise polyline (broad peaks + secondary bumps +
-  // saddles), and every segment is shaded by its orientation to the sun —
-  // sun-facing slopes lit, lee slopes in shadow — so the range reads as
-  // real forested mountains with light and shade, not a row of flat
-  // triangles (the v7 "map jelek"). Tree speckle on the lower slopes, pale
-  // rock patches near the crests, and a soft crest highlight finish it.
-  // The ridge base is the tilted horizon (horizonY), so the mountains sit
-  // ON the horizon instead of floating horizontally across a banked sky.
   function drawRidge(state, parallax, baseY, color, litColor, snow, sunLeft, horizonY) {
     const off = -state.heading * 900 * parallax - state.x * parallax * 0.4;
     const base = horizonY + 2;
-    // Ridgeline polyline: broad peaks (octave 1) + secondary bumps
-    // (octave 2) + jagged crest detail (octave 3). vnoise2 is -1..1.
     const step = 22;
     const pts = [];
     for (let x = -100; x <= W + 140; x += step) {
@@ -153,9 +129,6 @@ export function createRenderer(canvas) {
       h = clamp(h, baseY * 0.12, baseY * 1.12);
       pts.push({ x, y: base - h });
     }
-    // Per-segment fill: each quad is shaded by the slope's facing — the
-    // face that looks at the sun is lit, the other is shadow. A vertical
-    // gradient (bright crest, darker base) gives the forested-slope depth.
     for (let i = 0; i < pts.length - 1; i += 1) {
       const a = pts[i];
       const b = pts[i + 1];
@@ -175,15 +148,12 @@ export function createRenderer(canvas) {
       ctx.closePath();
       ctx.fill();
     }
-    // Soft crest highlight along the ridgeline.
     ctx.strokeStyle = 'rgba(235,244,238,0.35)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
     ctx.stroke();
-    // Forest speckle: dark tree clumps on the lower slopes (deterministic
-    // hash, so the ridge is identical every frame).
     for (let i = 0; i < pts.length - 1; i += 1) {
       const a = pts[i];
       const b = pts[i + 1];
@@ -202,7 +172,6 @@ export function createRenderer(canvas) {
         ctx.fill();
       }
     }
-    // A few pale rock patches near the crests break the green wash.
     for (let i = 0; i < pts.length - 1; i += 1) {
       const a = pts[i];
       const b = pts[i + 1];
@@ -221,8 +190,6 @@ export function createRenderer(canvas) {
     }
   }
 
-  // Sun glitter on water: a bright path under the sun's screen position,
-  // sparkling where the fine wave noise is high.
   function seaGlitter(c, level, fx, fogT, wx, wz) {
     const sunX = level.sun[0];
     const near = clamp(1 - Math.abs(fx - sunX) / 0.3, 0, 1);
@@ -233,7 +200,6 @@ export function createRenderer(canvas) {
     return [c[0] + 110 * g, c[1] + 115 * g, c[2] + 95 * g];
   }
 
-  // Rain streaks + grey veil when the leg is a storm.
   function drawRain(state) {
     ctx.strokeStyle = 'rgba(200,214,228,0.4)';
     ctx.lineWidth = 1.4;
@@ -272,14 +238,11 @@ export function createRenderer(canvas) {
     const cx = x + w / 2;
     const cy = y + h / 2 + 4;
     const r = Math.min(w, h) / 2 - 14;
-    // FMA strip: active modes, green on dark.
     ctx.fillStyle = '#7be495';
     ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('AT  |  LNAV  |  VNAV PTH', cx, y + 12);
     ctx.textAlign = 'left';
-    // Attitude ball, clipped to a circle: sky / ground split by the horizon,
-    // rotated by bank, shifted by pitch.
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -307,7 +270,6 @@ export function createRenderer(canvas) {
       ctx.stroke();
     }
     ctx.restore();
-    // Rim + fixed aircraft symbol + bank pointer.
     ctx.strokeStyle = '#8a94a2';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -330,7 +292,6 @@ export function createRenderer(canvas) {
     ctx.lineTo(cx + 5, cy - r + 10);
     ctx.closePath();
     ctx.fill();
-    // Airspeed tape (left) + altitude tape (right): current value boxed.
     const spdKt = Math.round(state.speed * 1.944);
     const altFt = Math.round(state.y * 3.281);
     ctx.fillStyle = 'rgba(10,18,30,0.85)';
@@ -361,7 +322,6 @@ export function createRenderer(canvas) {
     ctx.fillText(String(spdKt), x + 21, cy + 4);
     ctx.fillText(String(altFt), x + w - 21, cy + 4);
     ctx.textAlign = 'left';
-    // Heading strip along the bottom.
     const hdg = ((Math.round((state.heading * 180) / Math.PI) % 360) + 360) % 360;
     ctx.fillStyle = '#bcd9f2';
     ctx.font = 'bold 11px sans-serif';
@@ -379,7 +339,6 @@ export function createRenderer(canvas) {
     const cx = x + w / 2;
     const cy = y + h - 26;
     const r = Math.min(w, h) / 2 - 8;
-    // Range rings + heading rose.
     ctx.strokeStyle = 'rgba(120,160,200,0.35)';
     ctx.lineWidth = 1;
     for (const rr of [r * 0.5, r]) {
@@ -399,7 +358,6 @@ export function createRenderer(canvas) {
       ctx.fillText(label, cx + Math.cos(a) * (r - 8), cy + Math.sin(a) * (r - 8) + 3);
     }
     ctx.textAlign = 'left';
-    // Route: magenta line through the next waypoints, plotted by bearing.
     const range = 6000;
     function mapPoint(px, pz) {
       const dx = px - state.x;
@@ -436,7 +394,6 @@ export function createRenderer(canvas) {
       ctx.fillRect(-4, -4, 8, 8);
       ctx.restore();
     }
-    // Traffic dots.
     for (const t of world.traffic) {
       const p = mapPoint(t.x, t.z);
       if (!p) continue;
@@ -445,7 +402,6 @@ export function createRenderer(canvas) {
       ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
       ctx.fill();
     }
-    // Own-ship triangle at the centre.
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.moveTo(cx, cy - 9);
@@ -468,7 +424,6 @@ export function createRenderer(canvas) {
     ctx.textAlign = 'center';
     ctx.fillText('ENG', cx, y + 12);
     ctx.textAlign = 'left';
-    // N1 bars for two engines.
     for (let e = 0; e < 2; e += 1) {
       const bx = x + 22 + e * 34;
       const bh = h - 44;
@@ -486,7 +441,6 @@ export function createRenderer(canvas) {
       ctx.fillText(`${Math.round(frac * 100)}`, bx + 6, y + h - 8);
       ctx.textAlign = 'left';
     }
-    // Fuel + flaps readouts.
     ctx.fillStyle = '#bcd9f2';
     ctx.font = '11px sans-serif';
     ctx.fillText(`FUEL ${Math.round(state.fuel)}%`, x + 70, y + 30);
@@ -525,7 +479,6 @@ export function createRenderer(canvas) {
     ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('STBY', cx, y + h - 22);
-    // Master caution / warning lights.
     const blink = Math.floor(state.time * 3) % 2 === 0;
     if (world.level.storm && blink) {
       ctx.fillStyle = '#ff3b30';
@@ -544,13 +497,11 @@ export function createRenderer(canvas) {
     ctx.textAlign = 'left';
   }
 
-  // Centre pedestal: throttle quadrant on top, CDU + radios on the face.
   function drawPedestal(world, state) {
     const x0 = 420;
     const x1 = 860;
     const yTop = 664;
     const yBot = 720;
-    // Box body, slightly 3-D: top face lighter, front face darker.
     ctx.fillStyle = '#1b232e';
     ctx.beginPath();
     ctx.moveTo(x0 + 14, yTop);
@@ -562,7 +513,6 @@ export function createRenderer(canvas) {
     ctx.strokeStyle = '#3a4552';
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    // Throttle quadrant: two levers + speedbrake + flap handles.
     for (let e = 0; e < 2; e += 1) {
       const lx = 560 + e * 46;
       const lean = -14 + state.throttle * 22;
@@ -582,7 +532,6 @@ export function createRenderer(canvas) {
       ctx.fillText(`ENG ${e + 1}`, lx, yTop + 52);
       ctx.textAlign = 'left';
     }
-    // Flap + speedbrake levers, shorter, to the right.
     for (let e = 0; e < 2; e += 1) {
       const lx = 668 + e * 30;
       ctx.strokeStyle = '#c8a24a';
@@ -592,7 +541,6 @@ export function createRenderer(canvas) {
       ctx.lineTo(lx + 8, yTop + 18);
       ctx.stroke();
     }
-    // CDU screen: green route text on the front face.
     ctx.fillStyle = '#04120a';
     ctx.fillRect(700, yTop + 8, 130, 44);
     ctx.strokeStyle = '#1f6b3a';
@@ -603,7 +551,6 @@ export function createRenderer(canvas) {
     ctx.fillText('ROUTE  ' + world.level.name.toUpperCase(), 706, yTop + 22);
     ctx.fillText('NEXT WP ' + (world.nextRing() ? `${(Math.hypot(world.nextRing().x - state.x, world.nextRing().z - state.z) / 1000).toFixed(1)} KM` : 'RWY B'), 706, yTop + 36);
     ctx.fillText('FUEL ' + Math.round(state.fuel) + '%', 706, yTop + 48);
-    // Radio windows.
     ctx.fillStyle = '#0a0f16';
     ctx.fillRect(452, yTop + 12, 76, 18);
     ctx.fillRect(452, yTop + 34, 76, 18);
@@ -613,7 +560,6 @@ export function createRenderer(canvas) {
     ctx.fillText('118.10', 458, yTop + 47);
   }
 
-  // Yokes: dark U-shapes at the bottom corners, in front of the panel.
   function drawYoke(cx) {
     ctx.save();
     ctx.strokeStyle = '#20262f';
@@ -647,7 +593,6 @@ export function createRenderer(canvas) {
   }
 
   function drawCockpit(world, state) {
-    // Windshield frame: side pillars, centre post, top bar.
     ctx.fillStyle = '#12181f';
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -664,7 +609,6 @@ export function createRenderer(canvas) {
     ctx.closePath();
     ctx.fill();
     ctx.fillRect(0, 0, W, 12);
-    // Centre post between the two windscreens.
     ctx.fillStyle = '#12181f';
     ctx.beginPath();
     ctx.moveTo(CX - 8, 0);
@@ -673,7 +617,6 @@ export function createRenderer(canvas) {
     ctx.lineTo(CX - 6, PANEL_Y);
     ctx.closePath();
     ctx.fill();
-    // Pillar edge highlights + glass streaks + corner vignette.
     ctx.fillStyle = 'rgba(255,255,255,0.09)';
     ctx.fillRect(50, 0, 3, PANEL_Y);
     ctx.fillRect(W - 53, 0, 3, PANEL_Y);
@@ -691,7 +634,6 @@ export function createRenderer(canvas) {
     vig.addColorStop(1, 'rgba(0,0,0,0.22)');
     ctx.fillStyle = vig;
     ctx.fillRect(0, 0, W, PANEL_Y);
-    // Glareshield: padded shelf + MCP strip (autopilot targets).
     const g = ctx.createLinearGradient(0, PANEL_Y, 0, PANEL_Y + 30);
     g.addColorStop(0, '#2c3644');
     g.addColorStop(1, '#171e27');
@@ -727,7 +669,6 @@ export function createRenderer(canvas) {
       ctx.fillText(label, x + 27, PANEL_Y + 19);
     }
     ctx.textAlign = 'left';
-    // Main panel: dark slab behind the screens.
     const pg = ctx.createLinearGradient(0, PANEL_Y + 30, 0, H);
     pg.addColorStop(0, '#232c38');
     pg.addColorStop(1, '#0d1219');
@@ -735,7 +676,6 @@ export function createRenderer(canvas) {
     ctx.fillRect(0, PANEL_Y + 30, W, H - PANEL_Y - 30);
     ctx.fillStyle = '#3a4552';
     ctx.fillRect(0, PANEL_Y + 30, W, 2);
-    // Six glass screens: PFD / ND / EICAS / EICAS / ND / PFD + standby.
     const sy = PANEL_Y + 36;
     const sh = 134;
     drawPFD(24, sy, 198, sh, state);
@@ -750,7 +690,6 @@ export function createRenderer(canvas) {
     drawYoke(1150);
   }
 
-  // Lower-centre EICAS: systems — fuel, hydraulics, electrics.
   function drawEICAS2(x, y, w, h, world, state) {
     glassScreen(x, y, w, h);
     ctx.fillStyle = '#7be495';
@@ -763,7 +702,6 @@ export function createRenderer(canvas) {
     ctx.fillText(`HYD A/B OK`, x + 10, y + 30);
     ctx.fillText(`ELEC 28V`, x + 10, y + 46);
     ctx.fillText(`ANTI-ICE ${world.level.storm ? 'ON' : 'OFF'}`, x + 96, y + 30);
-    // Gear: three green down-lights.
     ctx.fillStyle = '#7be495';
     ctx.font = 'bold 10px sans-serif';
     ctx.fillText('GEAR', x + 96, y + 46);
@@ -779,7 +717,6 @@ export function createRenderer(canvas) {
     const s = world.state;
     const next = world.nextRing();
     ctx.textBaseline = 'alphabetic';
-    // Top bar.
     ctx.fillStyle = 'rgba(8,18,32,0.55)';
     ctx.fillRect(0, 14, W, 64);
     ctx.fillStyle = '#fff';
@@ -821,12 +758,10 @@ export function createRenderer(canvas) {
     ctx.font = '13px sans-serif';
     ctx.fillStyle = '#bcd9f2';
     ctx.fillText(`BEST ${best}`, W - 330, 68);
-    // Fuel bar.
     ctx.fillStyle = 'rgba(255,255,255,0.25)';
     ctx.fillRect(W - 224, 80, 200, 7);
     ctx.fillStyle = s.fuel < 20 ? '#ff6b5e' : '#ffd23e';
     ctx.fillRect(W - 224, 80, 200 * clamp(s.fuel / 100, 0, 1), 7);
-    // Route guidance: turn arrow toward the next waypoint + distance.
     if (next) {
       const wantH = Math.atan2(next.x - s.x, next.z - s.z);
       let dh = wantH - s.heading;
@@ -846,9 +781,6 @@ export function createRenderer(canvas) {
       ctx.fillText('ALL WAYPOINTS DONE — LAND ON RUNWAY B', CX, 108);
       ctx.textAlign = 'left';
     }
-    // Centre flight-path marker — FPP only. In chase view the hero jet
-    // itself is the flight-path reference; the marker sat on the canopy
-    // in v7's first TPP render.
     if (view !== VIEW_TPP) {
       ctx.strokeStyle = 'rgba(255,255,255,0.85)';
       ctx.lineWidth = 1.5;
@@ -862,7 +794,6 @@ export function createRenderer(canvas) {
       ctx.lineTo(CX, 390);
       ctx.stroke();
     }
-    // Waypoint / near-miss popup.
     if (s.lastRingT > 0) {
       ctx.save();
       ctx.globalAlpha = clamp(s.lastRingT, 0, 1);
@@ -873,8 +804,6 @@ export function createRenderer(canvas) {
       ctx.restore();
       ctx.textAlign = 'left';
     }
-    // Message line. The over screen has its own text; don't let the
-    // transient message poke out from behind its panel.
     if (s.messageT > 0 && s.message && !s.over) {
       ctx.fillStyle = 'rgba(8,18,32,0.6)';
       const mw = ctx.measureText(s.message).width + 36;
@@ -896,14 +825,6 @@ export function createRenderer(canvas) {
   }
 
   // ---- v9: the world as REAL 3D ----------------------------------------
-  // The static mesh (terrain + runway + props + clouds) is built once per
-  // world and cached; rings, traffic and the hero jet move, so they are
-  // transformed fresh every frame. Everything goes into ONE triangle list
-  // per frame, so the painter's sort is correct across the whole scene
-  // (a traffic plane behind a mountain must not paint over it). drawSky
-  // stays 2D (gradient + sun + distant ridges) as the far backdrop; the
-  // cockpit and HUD stay 2D overlays on top. drawCockpit is APPROVED —
-  // untouched.
   const worldMeshCache = new WeakMap();
   function hexToRgb(hex) {
     const n = parseInt(hex.slice(1), 16);
@@ -921,9 +842,6 @@ export function createRenderer(canvas) {
       ];
       worldMeshCache.set(world, staticMesh);
     }
-    // Sun: east or west by the level's sun x (matches the old 2D slope
-    // shading), high, slightly ahead. Fog: the horizon colour, from just
-    // past the nose to the level's fogFar.
     const sunSign = level.sun[0] > 0.5 ? 1 : -1;
     const sun = [sunSign * 0.55, 0.85, 0.35];
     const fogColor = hexToRgb(level.sky[2]);
@@ -960,7 +878,6 @@ export function createRenderer(canvas) {
     ctx.fillText('Five legs, five skies. Storms, gusts and traffic share the route.', CX, 220);
     ctx.fillText('Follow the blue rings to runway B. Waypoints top up a little fuel.', CX, 244);
     ctx.fillText('C / V — switch cockpit and chase view.', CX, 268);
-    // Leg list.
     ctx.textAlign = 'left';
     ctx.font = 'bold 17px sans-serif';
     const rows = [
@@ -1009,10 +926,6 @@ export function createRenderer(canvas) {
 
   function drawOver(world, best) {
     const s = world.state;
-    // v7: panel at the TOP, veil light — the runway just landed on lives
-    // in the LOWER half (refs 3–4, 7), and v5/v6's centre panel hid it
-    // (shot 4 was mostly a text panel). Panel starts BELOW the HUD top
-    // bar (y 88), so the heading/fuel readouts stay visible.
     ctx.fillStyle = 'rgba(8,18,32,0.15)';
     ctx.fillRect(0, 0, W, H);
     panel(310, 88, 660, 220);
@@ -1056,12 +969,6 @@ export function createRenderer(canvas) {
       return;
     }
     if (view === VIEW_TPP) {
-      // Chase camera, v10: further back and higher than v9 (side 16,
-      // back 20, up 4 — ~26 m), and pitched slightly UP (s.pitch + 0.02)
-      // so the horizon sits lower in the frame and BLUE SKY shows above
-      // the mountains — the v9 TPP shot had no sky at all because the
-      // 500 m peaks filled the frame. The jet sits in the lower third,
-      // like the FA-50 reference.
       const side = 16;
       const back = 20;
       const camX = s.x - Math.sin(s.heading) * back + Math.cos(s.heading) * side;

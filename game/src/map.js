@@ -32,6 +32,16 @@ export const MAP = {
   ],
   mountain: { sectorMin: 0.15, sectorMax: 1.05, dist: 3600, farNorthZ: 7800 },
   desert: { sectorMin: 1.15, sectorMax: 2.05, dist: 3000 },
+  // Fixed forest zones (circles): REAL forests — dense stands the legs fly
+  // past — not a scatter of lone trees. Mountain + field + island forests.
+  forests: [
+    { x: 1500, z: 6200, r: 3000 }, // NE mountain forest (L4 Alpine corridor)
+    { x: -1800, z: 6400, r: 2200 }, // great northern forest
+    { x: -1700, z: 2900, r: 950 }, // field forest west of the lake
+    { x: 3300, z: 4300, r: 900 }, // east foothills forest (L5 start)
+    { x: -2000, z: 1500, r: 700 }, // coastal hills forest (L2 climb-out)
+    { x: -3810, z: 3710, r: 320 }, // leg-3 island forest
+  ],
 };
 
 // Integer-hash value noise (same as gl3d.js — copied so this module is
@@ -68,6 +78,17 @@ function smooth(a, b, v) {
 /** The coastline: a wavy north-south line on the west side of the map. */
 export function coastX(z) {
   return -2900 + 320 * Math.sin(z * 0.0004) + 150 * Math.sin(z * 0.0011);
+}
+
+/** Forest cover at (x, z): 0 outside the zones, 1 deep inside (soft edge). */
+export function forestAt(x, z) {
+  let f = 0;
+  for (const fo of MAP.forests) {
+    const d = Math.hypot(x - fo.x, z - fo.z);
+    const t = clamp01((fo.r - d) / (fo.r * 0.25));
+    if (t > f) f = t;
+  }
+  return f;
 }
 
 /** Which district a map point belongs to. */

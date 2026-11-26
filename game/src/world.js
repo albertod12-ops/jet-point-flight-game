@@ -12,7 +12,7 @@
 // traffic crossings) is done in the leg/runway frame instead.
 import { JET, LEVELS, SCORE, WORLD } from './config.js';
 import { makeNoise } from './random.js';
-import { MAP, district, hash2, islandAt, mapBaseHeight, distToRoute } from './map.js';
+import { MAP, district, hash2, islandAt, mapBaseHeight, distToRoute, forestAt } from './map.js';
 
 export const EVENT_RING = 1;
 export const EVENT_NEAR = 2;
@@ -162,6 +162,7 @@ export function createWorld(random, levelIndex) {
     for (let v = -1600; v <= 7000; v += 90) {
       const p = legToMap(u, v);
       if (district(p.x, p.z) !== 'city') continue;
+      if (Math.hypot(p.x - 150, p.z - 1150) < 100) continue;
       const h1 = hash2(Math.floor(p.x / 90), Math.floor(p.z / 90));
       if (h1 > 0.55) continue;
       const h2 = hash2(Math.floor(p.x / 90) + 31, Math.floor(p.z / 90) + 17);
@@ -177,18 +178,37 @@ export function createWorld(random, levelIndex) {
       });
     }
   }
+  // Landmark supertall beside the L1 route (fixed — the city's one
+  // unmistakable tower, 95 m + spire; rings fly at 140 m, so it never
+  // hides them). The grid loop above skips its 100 m exclusion zone.
+  if (!adventure && level.id === 1) {
+    props.push({ x: 150, z: 1150, kind: 'landmark', s: 1 });
+  }
   // Forest: pines scattered on the mountain and field slopes near the
   // route — the texture that makes the mountains read as forested (REF 1),
   // not giant flat triangles.
   if (!adventure) {
-    for (let i = 0; i < 220; i += 1) {
+    for (let i = 0; i < 70; i += 1) {
       const v = random.range(0, WORLD.legLength + 800);
       const u = random.range(-1050, 1050);
       const p = legToMap(u, v);
+      if (forestAt(p.x, p.z) < 0.5) continue;
+      const n = 4 + Math.floor(random.next() * 8);
+      for (let k = 0; k < n; k += 1) {
+        const tx = p.x + random.range(-45, 45);
+        const tz = p.z + random.range(-45, 45);
+        const d = district(tx, tz);
+        if (d !== 'mountain' && d !== 'fields' && d !== 'sea') continue;
+        props.push({ x: tx, z: tz, kind: 'pine', s: random.range(0.9, 2.6), forest: true });
+      }
+    }
+    for (let i = 0; i < 36; i += 1) {
+      const v = random.range(0, WORLD.legLength + 800);
+      const u = random.range(-900, 900);
+      const p = legToMap(u, v);
       const d = district(p.x, p.z);
-      if (d !== 'mountain' && d !== 'fields') continue;
-      if (hash2(Math.floor(p.x / 7), Math.floor(p.z / 7)) < 0.35) continue;
-      props.push({ x: p.x, z: p.z, kind: 'pine', s: random.range(0.8, 2.4), forest: true });
+      if (d !== 'fields' && d !== 'mountain') continue;
+      props.push({ x: p.x, z: p.z, kind: 'oak', s: random.range(0.8, 1.5) });
     }
   }
   // Clouds drift above the route.
