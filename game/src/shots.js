@@ -76,7 +76,7 @@ export function stageShot(name, world) {
         let dh = Math.atan2(next.x - s.x, next.z - s.z) - s.heading;
         while (dh > Math.PI) dh -= Math.PI * 2;
         while (dh < -Math.PI) dh += Math.PI * 2;
-        if (d < 900 && d > 300 && Math.abs(dh) < 0.22) break;
+        if (d < 900 && d > 300 && Math.abs(dh) < 0.22 && Math.abs(s.bank) < 0.25) break;
       }
       const a = aim(s);
       const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);

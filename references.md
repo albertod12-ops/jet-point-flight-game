@@ -71,3 +71,45 @@ behind-above with the nose foreshortened; the ground rushes below with
 texture that is dense near and hazy far; the horizon sits high and soft;
 the aircraft's shadow is visible on the ground. v3 follows that recipe in
 canvas 2D — the art direction and shading changed, the engine did not.
+
+## v4 — the user's own references (sent 17:54 WIB 26 Nov, after rejecting v3)
+
+The user sent 8 photos. The two defects they named are real and were fixed
+from these, not from memory.
+
+- **Ref 1 — two FA-50s in formation, rear three-quarter** (the key ref):
+  Nose far and small, tail near and big; the long side of the fuselage is
+  visible with a dark bubble canopy just ahead of the wing root; the near
+  wing sweeps toward the viewer, foreshortened, top surface sunlit; the far
+  wing extends away, darker; the vertical fin is tall, swept back, at the
+  rear; the exhaust nozzle is a dark round hole with a metallic ring at the
+  very tail; wingtip rails, nav lights, contrails from the wingtips.
+  Applied: TPP camera moved to ~30° off the tail axis (24 m starboard, 42 m
+  behind, looking back at the jet) and the jet redrawn on that geometry —
+  nose up-right, tail down-left, fuselage with canopy, near wing toward the
+  viewer, tall teal fin, twin nozzles with petal rings and afterburner glow.
+  The FA-50 is single-engine; our jet keeps twin nozzles (the cockpit's
+  EICAS shows two engines) — the silhouette is the same fighter shape.
+- **Ref 2 — FA-50 on the tarmac, side view**: long pointed radome, bubble
+  canopy, cropped-delta wing, tall swept fin, single dark nozzle, intake
+  under the fuselage. Confirms the fuselage/canopy/wing/fin proportions
+  used in the v4 TPP redraw.
+- **Ref 3 + 4 — runway from the air**: threshold "piano keys" (full-width
+  white stripes), centreline dashes, runway number, grass at the sides,
+  taxiway. Applied: drawRunway now paints piano keys at BOTH thresholds
+  and a centreline along the strip (before, only 5 small dashes).
+- **Ref 5–8 — night cockpits (aurora, city lights, final approach, Airbus
+  sunset)**: lit instrument panels, overhead panel, runway lights ahead,
+  city lights below. NOT applied in v4 — the FPP cockpit was kept as-is
+  (the user never complained about it); these are recorded here for a
+  future iteration if the user asks for a cockpit pass.
+- **The v3 defect, root-caused (not just patched)**: the "buildings above
+  clouds" came from TWO independent bugs — project() double-counted pitch
+  (its ground points sat FOCAL·sin(pitch) away from where drawGround drew
+  the ground) and drawGround rotated the frame by +bank while project()
+  and the PFD rotate the world the opposite way. Fixed both, moved the
+  ridges into the same rotated frame as the ground, and added a
+  horizon-clip (clipBelowHorizon) as a belt-and-braces guarantee: no prop,
+  runway or cloud shadow may ever appear above the tilted horizon line.
+  Verified in all 4 new screenshots: sky above, ground below, mountains on
+  the horizon, nothing floating.
