@@ -22,7 +22,7 @@ export const LEVELS = [
     sky: ['#2f6fd0', '#7fb2e5', '#bcd9f2'], sun: [0.78, 92], ridge: 'city',
     start: [0, 0], heading: 0, strip: 'Metro Field',
     wind: 4, gust: 3, storm: false, traffic: 6, weave: 400, ceiling: 320,
-    time: 300, fogFar: 2600, ringBase: 140,
+    time: 300, fogFar: 2600, groundFog: 0.4, ringBase: 140,
     note: 'Follow the route ribbon over downtown, land at Metro Field.',
   },
   {
@@ -30,7 +30,7 @@ export const LEVELS = [
     sky: ['#e8863a', '#f2a65e', '#ffd9a0'], sun: [0.2, 120], ridge: 'beach',
     start: [-150, -250], heading: -Math.PI / 2, strip: 'Island Strip',
     wind: 8, gust: 6, storm: false, traffic: 6, weave: 460, ceiling: 340,
-    time: 300, fogFar: 2400, ringBase: 110,
+    time: 300, fogFar: 2400, groundFog: 1.2, ringBase: 110,
     note: 'Coastline on your left, waypoints over the surf, land on the island.',
   },
   {
@@ -38,7 +38,7 @@ export const LEVELS = [
     sky: ['#3a4552', '#5a6675', '#8a97a5'], sun: [0.5, 60], ridge: 'sea',
     start: [150, -250], heading: -Math.PI / 4, strip: 'North Island Strip',
     wind: 14, gust: 14, storm: true, traffic: 7, weave: 520, ceiling: 300,
-    time: 330, fogFar: 1500, ringBase: 130,
+    time: 330, fogFar: 1500, groundFog: 1.6, ringBase: 130,
     note: 'Rain, lightning and a rough sea. Fly the waypoints, stay dry.',
   },
   {
@@ -46,7 +46,7 @@ export const LEVELS = [
     sky: ['#4a7ec2', '#8fb4d8', '#d7e8f5'], sun: [0.82, 80], ridge: 'mountain',
     start: [-150, 250], heading: Math.PI / 4, strip: 'Alpine Strip',
     wind: 12, gust: 16, storm: false, traffic: 7, weave: 480, ceiling: 380,
-    time: 330, fogFar: 2200, ringBase: 150,
+    time: 330, fogFar: 2200, groundFog: 1.4, ringBase: 150,
     note: 'Peaks on both sides. The gusts will shove you — correct.',
   },
   {
@@ -54,7 +54,7 @@ export const LEVELS = [
     sky: ['#c96a3a', '#e8a05e', '#f5cf9a'], sun: [0.15, 150], ridge: 'desert',
     start: [150, 250], heading: Math.PI / 2, strip: 'Desert Strip',
     wind: 10, gust: 9, storm: false, traffic: 8, weave: 460, ceiling: 340,
-    time: 300, fogFar: 2300, ringBase: 110,
+    time: 300, fogFar: 2300, groundFog: 1.2, ringBase: 110,
     note: 'Canyons below, six aircraft sharing the route.',
   },
   {
@@ -62,7 +62,7 @@ export const LEVELS = [
     sky: ['#2f6fd0', '#7fb2e5', '#bcd9f2'], sun: [0.78, 92], ridge: 'city',
     start: [0, 0], heading: 0, strip: 'Main Airport',
     wind: 6, gust: 6, storm: false, traffic: 8, weave: 0, ceiling: 420,
-    time: 600, fogFar: 2600, ringBase: 110,
+    time: 600, fogFar: 2600, groundFog: 1.2, ringBase: 110,
     note: 'No fixed route. Explore, thread any waypoint, land when ready.',
   },
 ];

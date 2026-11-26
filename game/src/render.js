@@ -863,7 +863,7 @@ export function createRenderer(canvas) {
       const st = world.state;
       frame.push(...xformMesh(buildJet(), st.heading, st.pitch, st.bank, st.x, st.y, st.z));
     }
-    renderTris(ctx, frame, cam3, sun, fogColor, fogFar, W, H, FOCAL, HORIZON_Y);
+    renderTris(ctx, frame, cam3, sun, fogColor, fogFar, W, H, FOCAL, HORIZON_Y, fogFar * (level.groundFog ?? 0.7));
   }
 
   function drawTitle(world, best) {

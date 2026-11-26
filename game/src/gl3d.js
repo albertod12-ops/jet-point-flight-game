@@ -20,7 +20,7 @@
 
 // Deterministic 2-D value noise from integer hashing (same as render.js —
 // duplicated here so this module is self-contained).
-import { MAP, coastX, district, distToRoute, forestAt } from './map.js';
+import { MAP, coastX, district, distToRoute, forestAt, islandAt } from './map.js';
 
 export function hash2(ix, iz) {
   let h = (ix * 374761393 + iz * 668265263) | 0;
@@ -41,9 +41,9 @@ export function vnoise2(x, z) {
   return (a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz) * 2 - 1;
 }
 export function mottle(wx, wz) {
-  return vnoise2(wx * 0.02 + wz * 0.013, wz * 0.02 - wx * 0.007) * 0.45
-    + vnoise2(wx * 0.006 + 40, wz * 0.006 + 17) * 0.35
-    + vnoise2(wx * 0.055 + 11, wz * 0.055 - 5) * 0.2;
+  return vnoise2(wx * 0.004 + wz * 0.003, wz * 0.004 - wx * 0.002) * 0.5
+    + vnoise2(wx * 0.008 + 40, wz * 0.008 + 17) * 0.3
+    + vnoise2(wx * 0.012 + 11, wz * 0.012 - 5) * 0.2;
 }
 export function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -98,7 +98,7 @@ function clipNear(poly) {
 }
 
 // ---- the render pass ----------------------------------------------------
-export function renderTris(ctx, tris, cam, sun, fogRGB, fogFar, W, H, FOCAL, HORIZON_Y) {
+export function renderTris(ctx, tris, cam, sun, fogRGB, fogFar, W, H, FOCAL, HORIZON_Y, terrainFogFar = fogFar) {
   const CX = W / 2;
   const draw = []; // [sx1, sy1, sx2, sy2, sx3, sy3, depth, r, g, b, alpha]
   const fogCut = fogFar * 1.3;
@@ -139,7 +139,8 @@ export function renderTris(ctx, tris, cam, sun, fogRGB, fogFar, W, H, FOCAL, HOR
       if (t[16] !== 1 && (nx !== 0 || ny !== 0 || nz !== 0)) {
         shade = 0.80 + 0.28 * Math.max(0, nx * sun[0] + ny * sun[1] + nz * sun[2]);
       }
-      const fogT = clamp((depth - fogFar * 0.15) / (fogFar * 0.85), 0, 0.82);
+      const tf = t[17] ? terrainFogFar : fogFar;
+      const fogT = clamp((depth - tf * 0.15) / (tf * 0.85), 0, 0.82);
       const cr = Math.round((t[9] * shade) * (1 - fogT) + fogRGB[0] * fogT);
       const cg = Math.round((t[10] * shade) * (1 - fogT) + fogRGB[1] * fogT);
       const cb = Math.round((t[11] * shade) * (1 - fogT) + fogRGB[2] * fogT);
@@ -181,9 +182,9 @@ export function faceNormal(x1, y1, z1, x2, y2, z2, x3, y3, z3) {
   return [nx, ny, nz];
 }
 
-export function tri(mesh, x1, y1, z1, x2, y2, z2, x3, y3, z3, c, alpha = 1, em = 0) {
+export function tri(mesh, x1, y1, z1, x2, y2, z2, x3, y3, z3, c, alpha = 1, em = 0, tag = 0) {
   const n = faceNormal(x1, y1, z1, x2, y2, z2, x3, y3, z3);
-  mesh.push([x1, y1, z1, x2, y2, z2, x3, y3, z3, c[0], c[1], c[2], alpha, n[0], n[1], n[2], em]);
+  mesh.push([x1, y1, z1, x2, y2, z2, x3, y3, z3, c[0], c[1], c[2], alpha, n[0], n[1], n[2], em, tag]);
 }
 
 export function quad(mesh, x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4, c, alpha = 1, em = 0) {
@@ -484,14 +485,14 @@ function mix3(c1, c2, t) {
 export function terrainFaceColor(world, wx, wz, h) {
   const level = world.level;
   const mot = mottle(wx, wz);
-  const fine = vnoise2(wx * 0.11 + 7, wz * 0.11 - 3);
-  const grain = vnoise2(wx * 0.23 + 5, wz * 0.23 - 11);
+  const fine = vnoise2(wx * 0.004 + 7, wz * 0.004 - 3);
+  const grain = vnoise2(wx * 0.003 + 5, wz * 0.003 - 11);
   const dist = district(wx, wz);
   const dr = routeDist(world, wx, wz);
   const fo = forestAt(wx, wz);
-  const cn = vnoise2(wx * 0.05 + 13, wz * 0.05 - 5);
-  const cn2 = vnoise2(wx * 0.13 - 9, wz * 0.13 + 17);
-  const canopy = cn > 0.25 ? [26, 68, 36] : cn > -0.1 ? [38, 92, 46] : cn2 > 0.2 ? [52, 112, 54] : [30, 78, 40];
+  const cn = vnoise2(wx * 0.008 + 13, wz * 0.008 - 5);
+  const cn2 = vnoise2(wx * 0.006 - 9, wz * 0.006 + 17);
+  const canopy = mix3(mix3([26, 68, 36], [38, 92, 46], sstep(-0.5, -0.1, cn)), [52, 112, 54], 0.5 * sstep(0.1, 0.5, cn2));
   for (const rw of [world.runwayA, world.runwayB]) {
     const f = runwayFrame(rw, wx, wz);
     const aa = Math.abs(f.along);
@@ -506,10 +507,13 @@ export function terrainFaceColor(world, wx, wz, h) {
     if (aa < 470 && ax < 72) return shadeArr([98, 152, 82], 1 + mot * 0.08 + fine * 0.04);
   }
   if (dist === 'sea') {
-    let c = shadeArr([40, 118, 178], 1 + fine * 0.1 + mot * 0.05);
-    if (h > 2) {
-      const t = sstep(7, 11, h + mot * 2);
-      c = mix3(shadeArr([216, 198, 158], 1 + fine * 0.05), shadeArr([92, 140, 82], 1 + mot * 0.12 + fine * 0.05), t);
+    let c = shadeArr([40, 118, 178], 1 + fine * 0.05 + mot * 0.04);
+    if (h > 0.5) {
+      const isl = islandAt(wx, wz);
+      const rr = isl.d / isl.island.r;
+      const t = 1 - sstep(0.55, 0.9, rr + mot * 0.05);
+      const land = mix3(shadeArr([216, 198, 158], 1 + fine * 0.05), shadeArr([92, 140, 82], 1 + mot * 0.12 + fine * 0.05), t);
+      c = mix3(c, land, sstep(0, 12, h));
     }
     if (h > 9 && fo > 0) c = mix3(c, canopy, fo * 0.85);
     return c;
@@ -525,29 +529,29 @@ export function terrainFaceColor(world, wx, wz, h) {
   if (dist === 'city') {
     const mx = ((wx % 90) + 90) % 90;
     const mz = ((wz % 90) + 90) % 90;
-    const blockTone = 0.94 + 0.08 * vnoise2(wx * 0.008 + 3, wz * 0.008 - 7);
+    const blockTone = 0.94 + 0.08 * vnoise2(wx * 0.005 + 3, wz * 0.005 - 7);
     const park = vnoise2(wx * 0.005 + 11, wz * 0.005 + 2) > 0.62;
     if (park) return shadeArr([96, 138, 88], blockTone * (1 + mot * 0.06));
     if (mx < 9 || mz < 9) return shadeArr([74, 76, 80], 1 + mot * 0.04);
     if (mx < 14 || mz < 14) return shadeArr([168, 164, 152], blockTone);
-    if (vnoise2(wx * 0.011 + 21, wz * 0.011 - 13) > 0.55) return shadeArr([118, 120, 124], blockTone);
-    return shadeArr([146, 140, 128], blockTone * (1 + mot * 0.08));
+    const cg = vnoise2(wx * 0.005 + 21, wz * 0.005 - 13);
+    return shadeArr(mix3([146, 140, 128], [118, 120, 124], sstep(0.35, 0.65, cg)), blockTone * (1 + mot * 0.08));
   }
   if (dist === 'desert') {
     const dune = Math.sin((wx * 0.5 + wz * 0.8) * 0.028 + mot * 1.8);
-    const rockN = vnoise2(wx * 0.021 + 7, wz * 0.021 - 3);
-    const rocky = sstep(0.42, 0.62, rockN);
+    const rockN = vnoise2(wx * 0.006 + 7, wz * 0.006 - 3);
+    const rocky = sstep(0.35, 0.7, rockN);
     const ht = clamp((h - 18) / 24, 0, 1);
     const sand = mix3([218, 172, 114], [196, 134, 88], ht);
-    const sandC = shadeArr(sand, (1 + dune * 0.08 + mot * 0.06 + fine * 0.04 + grain * 0.03) * (dune > 0.55 ? 1.08 : 1));
+    const sandC = shadeArr(sand, (1 + dune * 0.08 + mot * 0.06 + fine * 0.04 + grain * 0.03) * (1 + 0.08 * sstep(0.35, 0.75, dune)));
     return mix3(sandC, shadeArr([168, 118, 82], 1 + mot * 0.07), rocky);
   }
   if (dist === 'mountain') {
-    const slope = (world.terrainHeight(wx + 12, wz) - world.terrainHeight(wx - 12, wz)) / 24;
+    const slope = (world.terrainHeight(wx + 60, wz) - world.terrainHeight(wx - 60, wz)) / 120;
     const sunSign = level.sun[0] > 0.5 ? 1 : -1;
     const light = 0.92 + 0.12 * clamp(slope * sunSign, -1, 1);
     const patch = vnoise2(wx * 0.006 + 31, wz * 0.006 + 11);
-    const patch2 = vnoise2(wx * 0.013 - 7, wz * 0.013 + 23);
+    const patch2 = vnoise2(wx * 0.006 - 7, wz * 0.006 + 23);
     const high = h + 26 * mot;
     let c;
     if (high < 48) {
@@ -558,12 +562,12 @@ export function terrainFaceColor(world, wx, wz, h) {
       const edge = clamp(0.5 + patch * 0.9, 0, 1);
       c = shadeArr(mix3(field, [122, 152, 92], edge * 0.6), light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
     } else if (high > 118) {
-      c = shadeArr(patch > 0.1 ? [104, 98, 88] : [62, 100, 62], light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
+      c = shadeArr(mix3([62, 100, 62], [104, 98, 88], sstep(-0.1, 0.3, patch)), light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
     } else {
-      const forest = patch > 0 ? [84, 132, 80] : [96, 146, 86];
-      const fine2 = vnoise2(wx * 0.03 + 3, wz * 0.03 - 8);
+      const forest = mix3([96, 146, 86], [84, 132, 80], sstep(-0.2, 0.2, patch));
+      const fine2 = vnoise2(wx * 0.008 + 3, wz * 0.008 - 8);
       c = shadeArr(forest, light * (1 + mot * 0.12 + fine * 0.05 + fine2 * 0.06 + grain * 0.03));
-      if (patch2 > 0.55) c = shadeArr(c, 0.88);
+      c = shadeArr(c, 1 - 0.12 * sstep(0.35, 0.75, patch2));
     }
     if (Math.abs(slope) > 0.55 && high > 60) c = shadeArr([108, 102, 92], light * (1 + mot * 0.06 + grain * 0.03));
     if (fo > 0) c = mix3(c, canopy, fo * 0.85);
@@ -610,6 +614,8 @@ export function buildTerrain(world) {
   const u1 = 1100;
   const v0 = -700;
   const v1 = 7300;
+  const nu = Math.round((u1 - u0) / step);
+  const nv = Math.round((v1 - v0) / step);
   const H = world.terrainHeight.bind(world);
   const mAlong = 480 + step;
   const mAcross = 55 + step;
@@ -624,21 +630,67 @@ export function buildTerrain(world) {
     x: leg.startX + u * leg.rightX + v * leg.dirX,
     z: leg.startZ + u * leg.rightZ + v * leg.dirZ,
   });
-  for (let v = v0; v < v1; v += step) {
-    for (let u = u0; u < u1; u += step) {
-      const p00 = toMap(u, v);
-      const p10 = toMap(u + step, v);
-      const p01 = toMap(u, v + step);
-      const p11 = toMap(u + step, v + step);
-      const h00 = flattenH(p00.x, p00.z, H(p00.x, p00.z));
-      const h10 = flattenH(p10.x, p10.z, H(p10.x, p10.z));
-      const h01 = flattenH(p01.x, p01.z, H(p01.x, p01.z));
-      const h11 = flattenH(p11.x, p11.z, H(p11.x, p11.z));
-      const pc = toMap(u + step / 2, v + step / 2);
-      const ch = (h00 + h10 + h01 + h11) / 4;
-      const c = terrainFaceColor(world, pc.x, pc.z, ch);
-      tri(mesh, p00.x, h00, p00.z, p01.x, h01, p01.z, p11.x, h11, p11.z, c);
-      tri(mesh, p00.x, h00, p00.z, p11.x, h11, p11.z, p10.x, h10, p10.z, c);
+  const hv = [];
+  for (let j = 0; j <= nv; j += 1) {
+    const row = [];
+    for (let i = 0; i <= nu; i += 1) {
+      const p = toMap(u0 + i * step, v0 + j * step);
+      row.push(flattenH(p.x, p.z, H(p.x, p.z)));
+    }
+    hv.push(row);
+  }
+  const col = [];
+  for (let j = 0; j < nv; j += 1) {
+    const row = [];
+    for (let i = 0; i < nu; i += 1) {
+      const pc = toMap(u0 + (i + 0.5) * step, v0 + (j + 0.5) * step);
+      const ch = (hv[j][i] + hv[j][i + 1] + hv[j + 1][i] + hv[j + 1][i + 1]) / 4;
+      row.push(terrainFaceColor(world, pc.x, pc.z, ch));
+    }
+    col.push(row);
+  }
+  const blur = [];
+  for (let j = 0; j < nv; j += 1) {
+    const row = [];
+    for (let i = 0; i < nu; i += 1) {
+      const c = col[j][i];
+      let r = c[0];
+      let g = c[1];
+      let b = c[2];
+      let n = 1;
+      for (let dj = -1; dj <= 1; dj += 1) {
+        for (let di = -1; di <= 1; di += 1) {
+          if (!di && !dj) continue;
+          const jj = j + dj;
+          const ii = i + di;
+          if (jj < 0 || jj >= nv || ii < 0 || ii >= nu) continue;
+          const o = col[jj][ii];
+          const dd = Math.abs(o[0] - c[0]) + Math.abs(o[1] - c[1]) + Math.abs(o[2] - c[2]);
+          if (dd < 60) {
+            r += o[0]; g += o[1]; b += o[2]; n += 1;
+          }
+        }
+      }
+      row.push([r / n, g / n, b / n]);
+    }
+    blur.push(row);
+  }
+  for (let j = 0; j < nv; j += 1) {
+    for (let i = 0; i < nu; i += 1) {
+      const p00 = toMap(u0 + i * step, v0 + j * step);
+      const p10 = toMap(u0 + (i + 1) * step, v0 + j * step);
+      const p01 = toMap(u0 + i * step, v0 + (j + 1) * step);
+      const p11 = toMap(u0 + (i + 1) * step, v0 + (j + 1) * step);
+      const pc = toMap(u0 + (i + 0.5) * step, v0 + (j + 0.5) * step);
+      const c = blur[j][i];
+      tri(mesh, p00.x, hv[j][i], p00.z, p01.x, hv[j + 1][i], p01.z, p11.x, hv[j + 1][i + 1], p11.z, c, 1, 0, 1);
+      tri(mesh, p00.x, hv[j][i], p00.z, p11.x, hv[j + 1][i + 1], p11.z, p10.x, hv[j][i + 1], p10.z, c, 1, 0, 1);
+      const nx = -(H(pc.x + 120, pc.z) - H(pc.x - 120, pc.z)) / 240;
+      const nz = -(H(pc.x, pc.z + 120) - H(pc.x, pc.z - 120)) / 240;
+      const nl = Math.hypot(nx, 1, nz);
+      for (let q = mesh.length - 2; q < mesh.length; q += 1) {
+        mesh[q][13] = -nx / nl; mesh[q][14] = 1 / nl; mesh[q][15] = -nz / nl;
+      }
     }
   }
   return mesh;
