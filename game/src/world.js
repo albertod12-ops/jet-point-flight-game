@@ -1,9 +1,18 @@
-// The flight model: a jet flies point to point. The jet has a heading (0 =
-// north, +z); it banks to turn, climbs and sinks, and follows a lit route of
-// waypoint rings from runway A to runway B. Traffic shares the sky, wind and
-// storms push it around, and the sortie ends in a landing — or a crash.
+// The flight model: a jet flies point to point on THE ONE MAP (v10).
+// The jet has a heading (0 = north, +z); it banks to turn, climbs and
+// sinks, and follows a lit route of waypoint rings from runway A (the main
+// airport) to runway B (a strip in another district of the same map).
+// Traffic shares the sky, wind and storms push it around, and the sortie
+// ends in a landing — or a crash.
+//
+// One map, five routes: each leg has a start + heading in map coordinates
+// (config.js), and the route is built in leg-local coords (u = lateral,
+// v = along the route) then rotated into the map. All geometry that used
+// to assume "north along +z" (landing, overshoot, corridor, ring misses,
+// traffic crossings) is done in the leg/runway frame instead.
 import { JET, LEVELS, SCORE, WORLD } from './config.js';
 import { makeNoise } from './random.js';
+import { MAP, district, hash2, islandAt, mapBaseHeight, distToRoute } from './map.js';
 
 export const EVENT_RING = 1;
 export const EVENT_NEAR = 2;
@@ -24,21 +33,40 @@ const TRAFFIC_TYPES = [
 export function createWorld(random, levelIndex) {
   const level = LEVELS[levelIndex] ?? LEVELS[0];
   const adventure = level.id === 0;
-  const hillNoise = makeNoise(random);
   const gustNoise = makeNoise(random);
   const routePhase = random.range(0, Math.PI * 2);
+  const heading = level.heading;
+  const dirX = Math.sin(heading);
+  const dirZ = Math.cos(heading);
+  const rightX = Math.cos(heading);
+  const rightZ = -Math.sin(heading);
+  const startX = level.start[0];
+  const startZ = level.start[1];
+  // Leg-local (u, v) -> map (x, z): u is right of the direction of travel.
+  function legToMap(u, v) {
+    return { x: startX + u * rightX + v * dirX, z: startZ + u * rightZ + v * dirZ };
+  }
+  // Map (x, z) -> leg-local (u, v).
+  function mapToLeg(x, z) {
+    const dx = x - startX;
+    const dz = z - startZ;
+    return { u: dx * rightX + dz * rightZ, v: dx * dirX + dz * dirZ };
+  }
+  const leg = { startX, startZ, heading, dirX, dirZ, rightX, rightZ };
 
-  // --- route: runway A (0,0) to runway B, rings snaking between them ---
+  // --- route: runway A (the airport) to runway B, rings snaking between ---
   const rings = [];
   if (!adventure) {
     for (let i = 0; i < WORLD.ringCount; i += 1) {
-      const z = 700 + i * WORLD.routeSpacing;
+      const v = 700 + i * WORLD.routeSpacing;
+      const u = level.weave * Math.sin(i * 1.7 + routePhase);
+      const p = legToMap(u, v);
       rings.push({
         // Many turns: 1.7 rad per ring ≈ 1.6 sine periods over the leg, so
         // the route snakes left-right-left-right instead of one lazy bend.
-        x: level.weave * Math.sin(i * 1.7 + routePhase),
-        y: 110 + 42 * Math.sin(i * 1.3 + routePhase * 0.5),
-        z,
+        x: p.x,
+        y: level.ringBase + 42 * Math.sin(i * 1.3 + routePhase * 0.5),
+        z: p.z,
         passed: false,
         near: false,
         quality: 0,
@@ -50,160 +78,152 @@ export function createWorld(random, levelIndex) {
       const a = (i / 8) * Math.PI * 2 + random.range(-0.3, 0.3);
       const r = random.range(900, 2600);
       rings.push({
-        x: Math.sin(a) * r,
+        x: startX + Math.sin(a) * r,
         y: random.range(90, 220),
-        z: Math.cos(a) * r,
+        z: startZ + Math.cos(a) * r,
         passed: false,
         near: false,
         quality: 0,
       });
     }
   }
-  const runwayA = { x: 0, z: 0 };
+  const runwayA = { x: startX, z: startZ, heading };
   // Final approach is straight: pull the last two rings toward the
   // centreline so the jet lines up with runway B instead of arriving
   // sideways off a hard turn (real procedures do the same).
   if (!adventure && rings.length >= 2) {
-    rings[rings.length - 2].x *= 0.5;
-    rings[rings.length - 1].x *= 0.25;
+    const p2 = mapToLeg(rings[rings.length - 2].x, rings[rings.length - 2].z);
+    const p1 = mapToLeg(rings[rings.length - 1].x, rings[rings.length - 1].z);
+    const q2 = legToMap(p2.u * 0.5, p2.v);
+    const q1 = legToMap(p1.u * 0.25, p1.v);
+    rings[rings.length - 2].x = q2.x;
+    rings[rings.length - 2].z = q2.z;
+    rings[rings.length - 1].x = q1.x;
+    rings[rings.length - 1].z = q1.z;
   }
   const runwayB = adventure
-    ? { x: 0, z: 0 }
-    : { x: rings[rings.length - 1].x, z: WORLD.legLength };
+    ? { x: startX, z: startZ, heading }
+    : (() => {
+        const p = legToMap(
+          mapToLeg(rings[rings.length - 1].x, rings[rings.length - 1].z).u,
+          WORLD.legLength,
+        );
+        return { x: p.x, z: p.z, heading };
+      })();
 
-  // The route's centreline x at a given z (linear through the rings): the
-  // mountain valley follows this line, so the rings always sit over low
-  // ground even when the route snakes.
-  function routeCenterX(z) {
-    if (adventure) return 0;
-    const pts = [{ x: 0, z: 0 }];
-    for (const r of rings) pts.push({ x: r.x, z: r.z });
-    pts.push({ x: runwayB.x, z: WORLD.legLength });
-    if (z <= pts[0].z) return pts[0].x;
-    for (let i = 0; i < pts.length - 1; i += 1) {
-      const a = pts[i];
-      const b = pts[i + 1];
-      if (z >= a.z && z <= b.z) {
-        const t = b.z === a.z ? 0 : (z - a.z) / (b.z - a.z);
-        return a.x + (b.x - a.x) * t;
-      }
-    }
-    return pts[pts.length - 1].x;
-  }
+  // The route polyline in map coords: runway A, rings, runway B. The
+  // mountain valley + valley river follow it (distToRoute).
+  const routePoints = [{ x: runwayA.x, z: runwayA.z }];
+  for (const r of rings) routePoints.push({ x: r.x, z: r.z });
+  routePoints.push({ x: runwayB.x, z: runwayB.z });
 
-  // Islands for the sea leg (terrain humps + a few palms on top). v5:
-  // generated BEFORE the props, so sea-leg props can sit ON islands —
-  // v4's storm shot had green trees standing on open water.
-  const islands = [];
-  if (level.theme === 'sea' || adventure) {
-    for (let i = 0; i < 7; i += 1) {
-      islands.push({
-        x: random.range(-700, 700),
-        z: random.range(600, WORLD.legLength),
-        r: random.range(120, 260),
-        h: random.range(24, 60),
-      });
-    }
-  }
-  // --- scenery props beside the route ---
+  // --- scenery props beside the route (leg-local band, mapped to the map) ---
+  // Kind is decided by the DISTRICT at the prop's map position, so a route
+  // crossing beach / sea / mountains / desert picks up the right scenery
+  // automatically — no per-leg theme switch.
   const props = [];
-  const propCount = level.theme === 'city' ? 150 : 110;
+  function propKindAt(x, z) {
+    const d = district(x, z);
+    if (d === 'city') return random.next() < 0.7 ? 'building' : 'building2';
+    if (d === 'beach') return random.next() < 0.6 ? 'palm' : 'hut';
+    if (d === 'sea') return random.next() < 0.6 ? 'palm' : 'hut';
+    if (d === 'mountain') return random.next() < 0.7 ? 'pine' : 'rock';
+    if (d === 'desert') return random.next() < 0.6 ? 'cactus' : 'rock';
+    return random.next() < 0.5 ? 'tree' : 'house';
+  }
+  const propCount = 120;
   for (let i = 0; i < propCount; i += 1) {
-    const z = random.range(200, WORLD.legLength + 600);
+    const v = random.range(200, WORLD.legLength + 600);
     const side = random.next() < 0.5 ? -1 : 1;
-    const x = side * random.range(30, 320);
-    const kind = random.next();
-    // Sea leg: props live on islands only (palms + huts), never on open
+    const u = side * random.range(30, 320);
+    const p = legToMap(u, v);
+    const d = district(p.x, p.z);
+    // Sea: props live on the map's fixed islands only, never on open
     // water — a tree standing on the sea is the v4 storm-shot defect.
-    if (level.theme === 'sea' && islands.length > 0) {
-      const isl = islands[Math.floor(random.next() * islands.length)];
+    if (d === 'sea') {
+      const { island, d: di } = islandAt(p.x, p.z);
+      if (!island || di > island.r * 0.8) continue;
       const a = random.range(0, Math.PI * 2);
-      const rr = random.range(0, isl.r * 0.55);
+      const rr = random.range(0, island.r * 0.55);
       props.push({
-        x: isl.x + Math.cos(a) * rr,
-        z: isl.z + Math.sin(a) * rr,
-        kind: kind < 0.6 ? 'palm' : 'hut',
+        x: island.x + Math.cos(a) * rr,
+        z: island.z + Math.sin(a) * rr,
+        kind: random.next() < 0.6 ? 'palm' : 'hut',
         s: random.range(0.7, 1.6),
       });
       continue;
     }
-    props.push({
-      x,
-      z,
-      kind:
-        level.theme === 'city'
-          ? kind < 0.7 ? 'building' : 'building2'
-          : level.theme === 'beach'
-            ? kind < 0.6 ? 'palm' : 'hut'
-            : level.theme === 'mountain'
-              ? kind < 0.7 ? 'pine' : 'rock'
-              : level.theme === 'desert'
-                ? kind < 0.6 ? 'cactus' : 'rock'
-                : kind < 0.5 ? 'tree' : 'house',
-      s: random.range(0.7, 1.6),
-    });
+    props.push({ x: p.x, z: p.z, kind: propKindAt(p.x, p.z), s: random.range(0.7, 1.6) });
+  }
+  // City grid: buildings on the city blocks near the route, placed by a
+  // position hash (part of the map — the same city every time, not a
+  // random scatter). Only inside the city district and near the route.
+  for (let u = -600; u <= 600; u += 90) {
+    for (let v = -1600; v <= 7000; v += 90) {
+      const p = legToMap(u, v);
+      if (district(p.x, p.z) !== 'city') continue;
+      const h1 = hash2(Math.floor(p.x / 90), Math.floor(p.z / 90));
+      if (h1 > 0.55) continue;
+      const h2 = hash2(Math.floor(p.x / 90) + 31, Math.floor(p.z / 90) + 17);
+      // Building scale: capped so the tallest tower (~52 m) stays well
+      // below the route (rings at 140 m) — the v10 first render had
+      // 105 m towers hiding the rings from the cockpit.
+      const s = 0.45 + h2 * 0.45;
+      props.push({
+        x: p.x + (h2 - 0.5) * 30,
+        z: p.z + (hash2(7, Math.floor(p.z / 90)) - 0.5) * 30,
+        kind: h1 < 0.28 ? 'building2' : 'building',
+        s,
+      });
+    }
+  }
+  // Forest: pines scattered on the mountain and field slopes near the
+  // route — the texture that makes the mountains read as forested (REF 1),
+  // not giant flat triangles.
+  if (!adventure) {
+    for (let i = 0; i < 220; i += 1) {
+      const v = random.range(0, WORLD.legLength + 800);
+      const u = random.range(-1050, 1050);
+      const p = legToMap(u, v);
+      const d = district(p.x, p.z);
+      if (d !== 'mountain' && d !== 'fields') continue;
+      if (hash2(Math.floor(p.x / 7), Math.floor(p.z / 7)) < 0.35) continue;
+      props.push({ x: p.x, z: p.z, kind: 'pine', s: random.range(0.8, 2.4), forest: true });
+    }
   }
   // Clouds drift above the route.
   const clouds = [];
   for (let i = 0; i < 26; i += 1) {
-    clouds.push({
-      x: random.range(-700, 700),
-      y: random.range(240, 380),
-      z: random.range(200, WORLD.legLength + 900),
-      s: random.range(22, 55),
-    });
+    const p = legToMap(random.range(-700, 700), random.range(200, WORLD.legLength + 900));
+    clouds.push({ x: p.x, y: random.range(240, 380), z: p.z, s: random.range(22, 55) });
   }
   // Storm clouds, lower and darker, for the storm leg.
   const stormClouds = [];
   if (level.storm) {
     for (let i = 0; i < 18; i += 1) {
-      stormClouds.push({
-        x: random.range(-600, 600),
-        y: random.range(150, 260),
-        z: random.range(300, WORLD.legLength + 600),
-        s: random.range(40, 90),
-      });
+      const p = legToMap(random.range(-600, 600), random.range(300, WORLD.legLength + 600));
+      stormClouds.push({ x: p.x, y: random.range(150, 260), z: p.z, s: random.range(40, 90) });
     }
   }
 
   function terrainHeight(x, z) {
-    const base = 8 + hillNoise(z * 0.004 + x * 0.011) * 7 + hillNoise(z * 0.0012) * 5;
-    let h = base;
-    if (level.theme === 'beach') {
-      // Sea to the west (x < -60), sand and dunes to the east.
-      if (x < -60) h = 0;
-      else h = 4 + hillNoise(z * 0.006 + x * 0.02) * 5;
-    } else if (level.theme === 'sea') {
-      h = 0;
-      for (const isl of islands) {
-        const d = Math.hypot(x - isl.x, z - isl.z);
-        if (d < isl.r) h = Math.max(h, isl.h * (1 - (d / isl.r) * (d / isl.r)));
-      }
-    } else if (level.theme === 'mountain') {
-      // A valley that follows the route centreline; peaks rise hard at the
-      // edges, so the rings always sit over flyable ground. Wide enough
-      // (±140 m flat floor, gentle walls) that a jet banking through the
-      // route's turns stays clear of the rock.
-      const dx = Math.abs(x - routeCenterX(z));
-      h = 20 + hillNoise(z * 0.005 + x * 0.02) * 20;
-      h += Math.max(0, dx - 140) * 1.0;
-      h += Math.max(0, dx - 300) * 0.8;
-    } else if (level.theme === 'desert') {
-      h = 8 + hillNoise(z * 0.005 + x * 0.015) * 12;
-      // Canyon walls follow the route centreline (not absolute x), so a
-      // snaking route never flies its rings into a cliff face.
-      h += Math.max(0, Math.abs(x - routeCenterX(z)) - 150) * 0.5;
-    } else if (adventure) {
-      h = base;
-      if (x < -800) h = 0; // sea to the west
-      if (z > 3800) h += (z - 3800) * 0.03; // mountains to the north
-    }
+    const distRoute = distToRoute(routePoints, x, z);
+    let h = mapBaseHeight(x, z, distRoute);
     // Flatten both runway strips so a landing reads as a landing.
+    // (In each runway's own frame: along the strip, across it.)
     for (const rw of [runwayA, runwayB]) {
-      const dz = Math.abs(z - rw.z);
-      const dx = Math.abs(x - rw.x);
-      if (dz < WORLD.runwayLength / 2 + 100 && dx < WORLD.runwayHalfWidth + 24) {
-        const t = Math.min(1, Math.max(0, (dz - WORLD.runwayLength / 2) / 100 + (dx - WORLD.runwayHalfWidth) / 24));
+      const dx = x - rw.x;
+      const dz = z - rw.z;
+      const along = dx * Math.sin(rw.heading) + dz * Math.cos(rw.heading);
+      const across = dx * Math.cos(rw.heading) - dz * Math.sin(rw.heading);
+      if (Math.abs(along) < WORLD.runwayLength / 2 + 100 && Math.abs(across) < WORLD.runwayHalfWidth + 24) {
+        const t = Math.min(
+          1,
+          Math.max(
+            0,
+            (Math.abs(along) - WORLD.runwayLength / 2) / 100 + (Math.abs(across) - WORLD.runwayHalfWidth) / 24,
+          ),
+        );
         h = 6 + (h - 6) * Math.max(0, Math.min(1, t));
       }
     }
@@ -214,16 +234,18 @@ export function createWorld(random, levelIndex) {
   const traffic = [];
   function spawnTraffic(t, ahead) {
     const type = TRAFFIC_TYPES[Math.floor(random.next() * TRAFFIC_TYPES.length)];
-    // Cross the route: headings mostly east-west, some same-direction.
+    // Cross the route: headings mostly perpendicular to the leg, some
+    // same-direction.
     const cross = random.next() < 0.65;
-    const heading = cross
-      ? (random.next() < 0.5 ? Math.PI / 2 : -Math.PI / 2) + random.range(-0.35, 0.35)
-      : random.range(-0.3, 0.3);
-    const z = ahead ? state.z + random.range(500, 1600) : random.range(400, WORLD.legLength);
-    t.x = random.range(-320, 320);
+    const tHeading = cross
+      ? heading + (random.next() < 0.5 ? Math.PI / 2 : -Math.PI / 2) + random.range(-0.35, 0.35)
+      : heading + random.range(-0.3, 0.3);
+    const v = ahead ? mapToLeg(state.x, state.z).v + random.range(500, 1600) : random.range(400, WORLD.legLength);
+    const p = legToMap(random.range(-320, 320), v);
+    t.x = p.x;
     t.y = random.range(90, 230);
-    t.z = z;
-    t.heading = heading;
+    t.z = p.z;
+    t.heading = tHeading;
     t.speed = type.speed * random.range(0.9, 1.1);
     t.type = type.kind;
     t.label = type.label;
@@ -257,8 +279,10 @@ export function createWorld(random, levelIndex) {
       ring.quality = 0;
     }
     for (const t of traffic) spawnTraffic(t, false);
+    // Start on runway A, 300 m before its centre, facing down the strip.
+    const sp = legToMap(0, -300);
     Object.assign(state, {
-      x: 0, y: 6, z: -300, heading: 0, bank: 0, pitch: 0,
+      x: sp.x, y: 6, z: sp.z, heading, bank: 0, pitch: 0,
       speed: 0, throttle: 0, fuel: JET.startFuel, score: 0,
       ringsHit: 0, nearMisses: 0, time: 0,
       over: false, won: false, crashed: false, crashReason: '',
@@ -274,6 +298,17 @@ export function createWorld(random, levelIndex) {
   function say(text, seconds = 2.5) {
     state.message = text;
     state.messageT = seconds;
+  }
+
+  // Position of the jet relative to a runway, in the runway's own frame:
+  // along the strip (+) and across it.
+  function runwayFrame(rw, x, z) {
+    const dx = x - rw.x;
+    const dz = z - rw.z;
+    return {
+      along: dx * Math.sin(rw.heading) + dz * Math.cos(rw.heading),
+      across: dx * Math.cos(rw.heading) - dz * Math.sin(rw.heading),
+    };
   }
 
   // One fixed step. steer: {x, y} in -1..1, throttleDelta -1..1, brake bool.
@@ -354,27 +389,36 @@ export function createWorld(random, levelIndex) {
         state.y = ground + 5;
         say('AIRBORNE — follow the route!', 2.5);
         events |= EVENT_TAKEOFF;
-      } else if (state.z > runwayA.z + WORLD.runwayLength / 2 + 120) {
+      } else if (runwayFrame(runwayA, state.x, state.z).along > WORLD.runwayLength / 2 + 120) {
         return crash('Ran off the runway — throttle up sooner.');
       }
     }
     if (state.takeoffGrace > 0) state.takeoffGrace -= dt;
 
-    // --- soft corridor bounds ---
-    if (state.x < -900) {
-      state.x = -900;
+    // --- soft corridor bounds (in the leg frame, not axis-aligned) ---
+    const lp = mapToLeg(state.x, state.z);
+    if (lp.u < -900) {
+      const p = legToMap(-900, lp.v);
+      state.x = p.x;
+      state.z = p.z;
       say('Edge of the area — turn back!', 1.2);
     }
-    if (state.x > 900) {
-      state.x = 900;
+    if (lp.u > 900) {
+      const p = legToMap(900, lp.v);
+      state.x = p.x;
+      state.z = p.z;
       say('Edge of the area — turn back!', 1.2);
     }
-    if (state.z < -500) {
-      state.z = -500;
+    if (lp.v < -500) {
+      const p = legToMap(lp.u, -500);
+      state.x = p.x;
+      state.z = p.z;
       say('Behind the field — turn around!', 1.2);
     }
-    if (state.z > WORLD.legLength + 1400) {
-      state.z = WORLD.legLength + 1400;
+    if (lp.v > WORLD.legLength + 1400) {
+      const p = legToMap(lp.u, WORLD.legLength + 1400);
+      state.x = p.x;
+      state.z = p.z;
       say('Past the destination — turn back!', 1.2);
     }
 
@@ -421,11 +465,13 @@ export function createWorld(random, levelIndex) {
         state.lastRingT = 1.2;
         say(`Near miss +${SCORE.ringNear}`, 1.2);
         events |= EVENT_NEAR;
-      } else if (!adventure && state.z > ring.z + 150) {
-        // Flown 150 m past the ring's line without threading it: missed.
-        // (Directional on purpose: a ring far AHEAD must never count as
-        // missed — that bug once voided the whole route at takeoff.)
-        ring.passed = true;
+      } else if (!adventure) {
+        // Flown 150 m past the ring along the leg direction without
+        // threading it: missed. (Directional on purpose: a ring far AHEAD
+        // must never count as missed — that bug once voided the whole
+        // route at takeoff.)
+        const alongRing = (state.x - ring.x) * dirX + (state.z - ring.z) * dirZ;
+        if (alongRing > 150) ring.passed = true;
       }
     }
 
@@ -460,13 +506,12 @@ export function createWorld(random, levelIndex) {
       if (d > 2200) spawnTraffic(t, true);
     }
 
-    // --- runway B / landing ---
-    const bz = runwayB.z;
-    const bx = runwayB.x;
-    const onStrip = Math.abs(state.z - bz) < WORLD.runwayLength / 2;
+    // --- runway B / landing (in runway B's own frame) ---
+    const bf = runwayFrame(runwayB, state.x, state.z);
+    const onStrip = Math.abs(bf.along) < WORLD.runwayLength / 2;
     if (onStrip && !state.landed && !state.onGround && !adventure) {
       const ground = terrainHeight(state.x, state.z);
-      if (Math.abs(state.x - bx) < WORLD.runwayHalfWidth + 10 && state.y - ground < 8 && state.speed < JET.landingMaxSpeed + 4 && state.speed > JET.landingMinSpeed) {
+      if (Math.abs(bf.across) < WORLD.runwayHalfWidth + 10 && state.y - ground < 8 && state.speed < JET.landingMaxSpeed + 4 && state.speed > JET.landingMinSpeed) {
         state.landed = true;
         state.won = true;
         state.over = true;
@@ -478,16 +523,19 @@ export function createWorld(random, levelIndex) {
         return events | EVENT_LAND | EVENT_OVER;
       }
       if (state.y - ground < 4) {
-        if (Math.abs(state.x - bx) >= WORLD.runwayHalfWidth + 14) return crash('Ran off the runway into the grass.');
+        if (Math.abs(bf.across) >= WORLD.runwayHalfWidth + 14) return crash('Ran off the runway into the grass.');
         if (state.speed >= JET.landingMaxSpeed + 4) return crash('Landed too fast — the jet overshot the strip.');
         if (state.speed <= JET.landingMinSpeed) return crash('Stalled onto the runway.');
       }
     }
-    if (state.z > bz + WORLD.runwayLength / 2 + 80 && !state.won && !adventure) {
+    if (bf.along > WORLD.runwayLength / 2 + 80 && !state.won && !adventure) {
       if (!state.goAround) {
         state.goAround = true;
         say('Overshot! One go-around — climb and come back.', 3);
-        state.z = bz - WORLD.runwayLength / 2 - 1200;
+        const rbLeg = mapToLeg(runwayB.x, runwayB.z);
+        const p = legToMap(rbLeg.u, rbLeg.v - WORLD.runwayLength / 2 - 1200);
+        state.x = p.x;
+        state.z = p.z;
         state.y = Math.max(state.y, 160);
         return events;
       }
@@ -496,7 +544,7 @@ export function createWorld(random, levelIndex) {
     // Adventure: landing on the home strip ends the run (needs 3+ rings).
     if (adventure && onStrip && !state.landed && !state.onGround && state.ringsHit >= 3) {
       const ground = terrainHeight(state.x, state.z);
-      if (Math.abs(state.x - bx) < WORLD.runwayHalfWidth + 10 && state.y - ground < 8 && state.speed < JET.landingMaxSpeed + 4 && state.speed > JET.landingMinSpeed) {
+      if (Math.abs(bf.across) < WORLD.runwayHalfWidth + 10 && state.y - ground < 8 && state.speed < JET.landingMaxSpeed + 4 && state.speed > JET.landingMinSpeed) {
         state.landed = true;
         state.won = true;
         state.over = true;
@@ -540,7 +588,9 @@ export function createWorld(random, levelIndex) {
   return {
     state,
     level,
+    leg,
     rings,
+    routePoints,
     props,
     clouds,
     stormClouds,

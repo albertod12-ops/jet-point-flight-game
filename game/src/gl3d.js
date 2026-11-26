@@ -20,6 +20,8 @@
 
 // Deterministic 2-D value noise from integer hashing (same as render.js —
 // duplicated here so this module is self-contained).
+import { MAP, coastX, district, distToRoute } from './map.js';
+
 export function hash2(ix, iz) {
   let h = (ix * 374761393 + iz * 668265263) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -551,24 +553,21 @@ export function buildJet() {
 // ---- world builders -----------------------------------------------------
 // All return world-space triangle arrays (static per world, built once).
 
-// Route centreline x at a given z (linear through the rings) — same as
-// world.js, so the mountain valley/river follow the route.
-export function routeCenterX(world, z) {
-  const rings = world.rings;
-  if (!rings || rings.length === 0) return 0;
-  const pts = [{ x: 0, z: 0 }];
-  for (const r of rings) pts.push({ x: r.x, z: r.z });
-  pts.push({ x: world.runwayB.x, z: 5600 });
-  if (z <= pts[0].z) return pts[0].x;
-  for (let i = 0; i < pts.length - 1; i += 1) {
-    const a = pts[i];
-    const b = pts[i + 1];
-    if (z >= a.z && z <= b.z) {
-      const t = b.z === a.z ? 0 : (z - a.z) / (b.z - a.z);
-      return a.x + (b.x - a.x) * t;
-    }
-  }
-  return pts[pts.length - 1].x;
+// Distance from (x, z) to the route polyline — the mountain valley and
+// the valley river follow the route, in map coordinates.
+export function routeDist(world, x, z) {
+  if (!world.routePoints || world.routePoints.length < 2) return Infinity;
+  return distToRoute(world.routePoints, x, z);
+}
+
+// A runway's local frame: along the strip (+) and across it.
+export function runwayFrame(rw, x, z) {
+  const dx = x - rw.x;
+  const dz = z - rw.z;
+  return {
+    along: dx * Math.sin(rw.heading) + dz * Math.cos(rw.heading),
+    across: dx * Math.cos(rw.heading) - dz * Math.sin(rw.heading),
+  };
 }
 
 function shadeArr(c, f) {
@@ -578,41 +577,61 @@ function mix3(c1, c2, t) {
   return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
 }
 
-// Terrain face colour at (wx, wz, h): the map's paint, per theme. Adapted
-// from the old 2D groundColor, minus fog and screen glitter (the engine
-// does fog by depth). Returns [r, g, b] floats.
+// Terrain face colour at (wx, wz, h): the ONE MAP's paint, per district
+// (map.js). Adapted from the old 2D groundColor, minus fog and screen
+// glitter (the engine does fog by depth). Returns [r, g, b] floats.
 export function terrainFaceColor(world, wx, wz, h) {
   const level = world.level;
   const mot = mottle(wx, wz);
   const fine = vnoise2(wx * 0.11 + 7, wz * 0.11 - 3);
-  const onRunway =
-    (Math.abs(wz - world.runwayA.z) < 450 && Math.abs(wx - world.runwayA.x) < 13)
-    || (Math.abs(wz - world.runwayB.z) < 450 && Math.abs(wx - world.runwayB.x) < 13);
-  if (onRunway) return [88, 88, 92];
-  if (level.theme === 'city') {
-    // GTA-low city: blocks in varied grey-beige tones, a few green parks.
-    // The street grid is implied by the block pattern + the 3D buildings.
-    const bx = Math.floor(wx / 90);
-    const bz = Math.floor(wz / 90);
-    const blockTone = 0.92 + hash2(bx, bz) * 0.16;
-    const park = hash2(bx + 9, bz + 4) > 0.96;
-    if (park) return shadeArr([108, 130, 96], blockTone);
-    return shadeArr([138, 134, 124], blockTone * (1 + mot * 0.08));
+  const dist = district(wx, wz);
+  const dr = routeDist(world, wx, wz);
+  // Runway + taxiway + mowed airfield grass, in each runway's own frame.
+  for (const rw of [world.runwayA, world.runwayB]) {
+    const f = runwayFrame(rw, wx, wz);
+    if (Math.abs(f.along) < 450 && Math.abs(f.across) < 13) return [88, 88, 92];
+    if (Math.abs(f.along) < 450 && f.across > 38 && f.across < 52) return [66, 66, 70];
+    if (Math.abs(f.along) < 470 && Math.abs(f.across) < 72) {
+      const stripe = Math.floor(f.along / 30) % 2 === 0 ? 1 : 0.86;
+      return shadeArr([98, 152, 82], stripe * (1 + mot * 0.06));
+    }
   }
-  if (level.theme === 'beach') {
-    const coastX = -60 + 38 * vnoise2(3.7, wz * 0.008);
-    if (wx < coastX - 5) return shadeArr([38, 116, 168], 1 + fine * 0.1);
-    if (wx < coastX + 2) return [238, 244, 238];
-    if (wx < coastX + 20) return shadeArr([196, 172, 128], 1 + fine * 0.04);
-    const dune = Math.sin((wx * 0.35 + wz) * 0.03 + mot * 1.6);
-    return shadeArr([216, 190, 138], 1 + dune * 0.07 + mot * 0.06 + fine * 0.04);
-  }
-  if (level.theme === 'sea') {
+  if (dist === 'sea') {
     let c = shadeArr([40, 118, 178], 1 + fine * 0.1 + mot * 0.05);
     if (h > 2) c = h < 9 ? shadeArr([216, 198, 158], 1 + fine * 0.05) : shadeArr([92, 140, 82], 1 + mot * 0.12 + fine * 0.05);
     return c;
   }
-  if (level.theme === 'mountain') {
+  if (dist === 'beach') {
+    const coast = coastX(wz);
+    if (wx < coast - 5) return shadeArr([38, 116, 168], 1 + fine * 0.1);
+    if (wx < coast + 2) return [238, 244, 238];
+    if (wx < coast + 20) return shadeArr([196, 172, 128], 1 + fine * 0.04);
+    const dune = Math.sin((wx * 0.35 + wz) * 0.03 + mot * 1.6);
+    return shadeArr([216, 190, 138], 1 + dune * 0.07 + mot * 0.06 + fine * 0.04);
+  }
+  if (dist === 'city') {
+    // GTA-low city: a visible street grid (roads dark, sidewalks light),
+    // blocks in varied tones, a few green parks and grey parking lots.
+    const bx = Math.floor(wx / 90);
+    const bz = Math.floor(wz / 90);
+    const mx = ((wx % 90) + 90) % 90;
+    const mz = ((wz % 90) + 90) % 90;
+    const blockTone = 0.92 + hash2(bx, bz) * 0.16;
+    const park = hash2(bx + 9, bz + 4) > 0.96;
+    if (park) return shadeArr([96, 138, 88], blockTone);
+    if (mx < 9 || mz < 9) return shadeArr([74, 76, 80], 1 + mot * 0.04);
+    if (mx < 14 || mz < 14) return shadeArr([168, 164, 152], blockTone);
+    if (hash2(bx + 21, bz + 13) > 0.9) return shadeArr([118, 120, 124], blockTone);
+    return shadeArr([146, 140, 128], blockTone * (1 + mot * 0.08));
+  }
+  if (dist === 'desert') {
+    const dune = Math.sin((wx * 0.5 + wz * 0.8) * 0.028 + mot * 1.8);
+    const rocky = hash2(Math.floor(wx / 34), Math.floor(wz / 34)) > 0.88;
+    const ht = clamp((h - 18) / 24, 0, 1);
+    const sand = mix3([218, 172, 114], [196, 134, 88], ht);
+    return rocky ? shadeArr([168, 118, 82], 1 + mot * 0.07) : shadeArr(sand, 1 + dune * 0.08 + mot * 0.06 + fine * 0.04);
+  }
+  if (dist === 'mountain') {
     const slope = (world.terrainHeight(wx + 12, wz) - world.terrainHeight(wx - 12, wz)) / 24;
     const sunSign = level.sun[0] > 0.5 ? 1 : -1;
     // Gentle slope tint only: the 3D engine's own sun shading does the
@@ -637,95 +656,205 @@ export function terrainFaceColor(world, wx, wz, h) {
       c = shadeArr(forest, light * (1 + mot * 0.12 + fine * 0.05));
       if (patch2 > 0.55) c = shadeArr(c, 0.88);
     }
-    const rcx = routeCenterX(world, wz);
-    const rivX = rcx + 46 * vnoise2(3.1, wz * 0.0016);
-    const rd = Math.abs(wx - rivX);
-    if (high < 60 && rd < 11) c = shadeArr(rd < 6 ? [64, 128, 148] : [92, 150, 164], light * (1 + fine * 0.06));
-    else if (high < 60 && rd < 15) c = shadeArr([198, 186, 140], light);
+    // The valley river follows the route.
+    if (high < 60 && dr < 11) c = shadeArr(dr < 6 ? [64, 128, 148] : [92, 150, 164], light * (1 + fine * 0.06));
+    else if (high < 60 && dr < 15) c = shadeArr([198, 186, 140], light);
     return c;
   }
-  if (level.theme === 'desert') {
-    const dune = Math.sin((wx * 0.5 + wz * 0.8) * 0.028 + mot * 1.8);
-    const rocky = hash2(Math.floor(wx / 34), Math.floor(wz / 34)) > 0.88;
-    const ht = clamp((h - 18) / 24, 0, 1);
-    const sand = mix3([218, 172, 114], [196, 134, 88], ht);
-    return rocky ? shadeArr([168, 118, 82], 1 + mot * 0.07) : shadeArr(sand, 1 + dune * 0.08 + mot * 0.06 + fine * 0.04);
-  }
-  // Adventure: sea west, green elsewhere.
-  if (wx < -800) return shadeArr([44, 122, 182], 1 + fine * 0.06);
-  return shadeArr(h > 26 ? [98, 130, 76] : [114, 158, 84], 1 + mot * 0.1 + fine * 0.05);
+  // fields: rolling green countryside, field patches, the lake, the river.
+  // Muted greens in large (300 m) blocks — the v10 first render used
+  // 150 m blocks in tan/green/grey that read as a checkerboard.
+  const lakeD = Math.hypot(wx - MAP.lake.x, wz - MAP.lake.z);
+  if (lakeD < MAP.lake.r) return shadeArr([58, 124, 158], 1 + fine * 0.08);
+  if (dr < 11) return shadeArr(dr < 6 ? [64, 128, 148] : [92, 150, 164], 1 + fine * 0.06);
+  if (dr < 15) return shadeArr([198, 186, 140], 1);
+  const fx = Math.floor(wx / 300);
+  const fz = Math.floor(wz / 300);
+  const fh = hash2(fx, fz);
+  const field = fh < 0.15 ? [188, 172, 116] : fh < 0.55 ? [140, 165, 96] : fh < 0.8 ? [124, 152, 88] : [112, 142, 82];
+  const patch = vnoise2(wx * 0.006 + 31, wz * 0.006 + 11);
+  const edge = clamp(0.5 + patch * 0.9, 0, 1);
+  return shadeArr(mix3(field, [128, 156, 92], edge * 0.6), 1 + mot * 0.1 + fine * 0.05);
 }
 
 // The terrain as a real 3D heightmap mesh: a grid over the whole leg,
 // each quad two triangles coloured by terrainFaceColor at its centroid.
-// City uses 90 m cells aligned to block centres; other themes 100 m.
+// Built in the LEG's local frame (u = lateral, v = along the route) and
+// rotated into map coordinates, so a west/east/diagonal leg gets the same
+// mesh as a north leg. The mountain leg uses 50 m cells (finer texture
+// for the forested slopes — the v9 100 m cells read as giant flat
+// triangles); other legs use 100 m.
 export function buildTerrain(world) {
   const mesh = [];
-  const step = world.level.theme === 'city' ? 90 : 100;
-  const x0 = world.level.theme === 'city' ? -1035 : -1100;
-  const x1 = 1100;
-  const z0 = world.level.theme === 'city' ? -675 : -700;
-  const z1 = 7300;
+  const leg = world.leg;
+  const step = world.level.id === 4 ? 50 : 100;
+  const u0 = -1100;
+  const u1 = 1100;
+  const v0 = -700;
+  const v1 = 7300;
   const H = world.terrainHeight.bind(world);
-  // Flatten a wide band (half a cell + runway width) around each runway
-  // to h=6, so the terrain mesh cannot poke through the asphalt (the
-  // heightmap cells are 90-100 m wide, so the natural terrain would).
-  // The band extends one full cell past the runway in both axes, so the
-  // slope back up to natural terrain starts OUTSIDE the asphalt.
-  const mX = 55 + step;
-  const mZ = 480 + step;
+  // Flatten a wide band around each runway to h=6, so the terrain mesh
+  // cannot poke through the asphalt (the heightmap cells are 50-100 m
+  // wide, so the natural terrain would). In each runway's own frame.
+  const mAlong = 480 + step;
+  const mAcross = 55 + step;
   const flattenH = (x, z, h) => {
-    if (Math.abs(z - world.runwayA.z) < mZ && Math.abs(x - world.runwayA.x) < mX) return 6;
-    if (Math.abs(z - world.runwayB.z) < mZ && Math.abs(x - world.runwayB.x) < mX) return 6;
+    for (const rw of [world.runwayA, world.runwayB]) {
+      const f = runwayFrame(rw, x, z);
+      if (Math.abs(f.along) < mAlong && Math.abs(f.across) < mAcross) return 6;
+    }
     return h;
   };
-  for (let z = z0; z < z1; z += step) {
-    for (let x = x0; x < x1; x += step) {
-      const h00 = flattenH(x, z, H(x, z));
-      const h10 = flattenH(x + step, z, H(x + step, z));
-      const h01 = flattenH(x, z + step, H(x, z + step));
-      const h11 = flattenH(x + step, z + step, H(x + step, z + step));
-      const cx = x + step / 2;
-      const cz = z + step / 2;
+  const toMap = (u, v) => ({
+    x: leg.startX + u * leg.rightX + v * leg.dirX,
+    z: leg.startZ + u * leg.rightZ + v * leg.dirZ,
+  });
+  for (let v = v0; v < v1; v += step) {
+    for (let u = u0; u < u1; u += step) {
+      const p00 = toMap(u, v);
+      const p10 = toMap(u + step, v);
+      const p01 = toMap(u, v + step);
+      const p11 = toMap(u + step, v + step);
+      const h00 = flattenH(p00.x, p00.z, H(p00.x, p00.z));
+      const h10 = flattenH(p10.x, p10.z, H(p10.x, p10.z));
+      const h01 = flattenH(p01.x, p01.z, H(p01.x, p01.z));
+      const h11 = flattenH(p11.x, p11.z, H(p11.x, p11.z));
+      const pc = toMap(u + step / 2, v + step / 2);
       const ch = (h00 + h10 + h01 + h11) / 4;
-      const c = terrainFaceColor(world, cx, cz, ch);
+      const c = terrainFaceColor(world, pc.x, pc.z, ch);
       // Top face, counter-clockwise in the top view (x right, z down).
-      tri(mesh, x, h00, z, x, h01, z + step, x + step, h11, z + step, c);
-      tri(mesh, x, h00, z, x + step, h11, z + step, x + step, h10, z, c);
+      tri(mesh, p00.x, h00, p00.z, p01.x, h01, p01.z, p11.x, h11, p11.z, c);
+      tri(mesh, p00.x, h00, p00.z, p11.x, h11, p11.z, p10.x, h10, p10.z, c);
     }
   }
   return mesh;
 }
 
+// Runway number (01-36) for a heading, and its reciprocal.
+function runwayNumber(heading) {
+  const deg = ((heading * 180) / Math.PI % 360 + 360) % 360;
+  let n = Math.round(deg / 10);
+  if (n === 0 || n > 36) n = 36;
+  const rec = n + 18 > 36 ? n - 18 : n + 18;
+  return [n, rec];
+}
+
+// One 7-segment digit, flat on the ground in the runway-local frame
+// (x = across, z = along). rot = 0 reads from -z, rot = PI from +z.
+// digit: 0-9. Size: 8 m wide, 14 m tall, 2 m segments.
+function digitSegs(mesh, cx, cz, digit, rot, y, col) {
+  const W = 8;
+  const H = 14;
+  const T = 2;
+  const segs = {
+    0: ['a', 'b', 'c', 'd', 'e', 'f'],
+    1: ['b', 'c'],
+    2: ['a', 'b', 'g', 'e', 'd'],
+    3: ['a', 'b', 'g', 'c', 'd'],
+    4: ['f', 'g', 'b', 'c'],
+    5: ['a', 'f', 'g', 'c', 'd'],
+    6: ['a', 'f', 'g', 'e', 'c', 'd'],
+    7: ['a', 'b', 'c'],
+    8: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+    9: ['a', 'b', 'c', 'd', 'f', 'g'],
+  }[digit] ?? [];
+  // Segment rects in the digit's local frame: [x0, z0, x1, z1].
+  const rects = {
+    a: [-W / 2, -H / 2, W / 2, -H / 2 + T],
+    g: [-W / 2, -T / 2, W / 2, T / 2],
+    d: [-W / 2, H / 2 - T, W / 2, H / 2],
+    f: [-W / 2, -H / 2, -W / 2 + T, 0],
+    b: [W / 2 - T, -H / 2, W / 2, 0],
+    e: [-W / 2, 0, -W / 2 + T, H / 2],
+    c: [W / 2 - T, 0, W / 2, H / 2],
+  };
+  const cs = Math.cos(rot);
+  const sn = Math.sin(rot);
+  for (const s of segs) {
+    const r = rects[s];
+    // Rotate the rect's corners around the digit centre.
+    const pts = [
+      [r[0], r[1]],
+      [r[0], r[3]],
+      [r[2], r[3]],
+      [r[2], r[1]],
+    ].map(([dx, dz]) => [cx + dx * cs - dz * sn, cz + dx * sn + dz * cs]);
+    quad(mesh, pts[0][0], y, pts[0][1], pts[1][0], y, pts[1][1], pts[2][0], y, pts[2][1], pts[3][0], y, pts[3][1], col);
+  }
+}
+
 // Runways: dark asphalt strips with threshold piano keys, centreline
-// dashes, approach lights and PAPI — refs 3-4.
+// dashes, runway numbers (refs 3-4), a parallel taxiway with a yellow
+// centreline, approach lights, PAPI and edge lights. Built in the
+// runway-local frame (along = +z) then rotated to the runway heading.
 export function buildRunway(world) {
   const mesh = [];
   for (const rw of [world.runwayA, world.runwayB]) {
-    const rx = rw.x;
-    const rz = rw.z;
+    const local = [];
     const y = 6.5;
     // Asphalt (top face).
-    quad(mesh, rx - 11, y, rz - 450, rx - 11, y, rz + 450, rx + 11, y, rz + 450, rx + 11, y, rz - 450, [70, 70, 74]);
+    quad(local, -11, y, -450, -11, y, 450, 11, y, 450, 11, y, -450, [70, 70, 74]);
+    // Parallel taxiway (offset +45) with a yellow centreline.
+    quad(local, 38, y - 0.1, -450, 38, y - 0.1, 450, 52, y - 0.1, 450, 52, y - 0.1, -450, [64, 64, 68]);
+    for (let z = -450 + 40; z < 450 - 30; z += 62) {
+      quad(local, 44.4, y + 0.1, z - 13, 44.4, y + 0.1, z + 13, 45.6, y + 0.1, z + 13, 45.6, y + 0.1, z - 13, [232, 196, 60]);
+    }
     // Threshold piano keys at both ends: 5 white stripes each.
-    for (const tz of [rz - 450 + 22, rz + 450 - 22]) {
+    for (const tz of [-450 + 22, 450 - 22]) {
       for (let i = -2; i <= 2; i += 1) {
-        quad(mesh, rx + i * 4.2 - 1.3, y + 0.2, tz - 13, rx + i * 4.2 - 1.3, y + 0.2, tz + 13, rx + i * 4.2 + 1.3, y + 0.2, tz + 13, rx + i * 4.2 + 1.3, y + 0.2, tz - 13, [245, 245, 240]);
+        quad(local, i * 4.2 - 1.3, y + 0.2, tz - 13, i * 4.2 - 1.3, y + 0.2, tz + 13, i * 4.2 + 1.3, y + 0.2, tz + 13, i * 4.2 + 1.3, y + 0.2, tz - 13, [245, 245, 240]);
       }
     }
     // Centreline dashes.
-    for (let z = rz - 450 + 70; z < rz + 450 - 50; z += 62) {
-      quad(mesh, rx - 1.2, y + 0.2, z - 13, rx - 1.2, y + 0.2, z + 13, rx + 1.2, y + 0.2, z + 13, rx + 1.2, y + 0.2, z - 13, [245, 245, 240]);
+    for (let z = -450 + 70; z < 450 - 50; z += 62) {
+      quad(local, -1.2, y + 0.2, z - 13, -1.2, y + 0.2, z + 13, 1.2, y + 0.2, z + 13, 1.2, y + 0.2, z - 13, [245, 245, 240]);
+    }
+    // Runway numbers at both thresholds (refs 3-4): the designator for
+    // landing toward +z sits at the near threshold, its reciprocal at
+    // the far one. Two digits, centred on the centreline.
+    const [n, rec] = runwayNumber(rw.heading);
+    const digits = (num, cz, rot) => {
+      const tens = Math.floor(num / 10);
+      const ones = num % 10;
+      digitSegs(local, -5, cz, tens, rot, y + 0.2, [245, 245, 240]);
+      digitSegs(local, 5, cz, ones, rot, y + 0.2, [245, 245, 240]);
+    };
+    digits(n, -418, 0);
+    digits(rec, 418, Math.PI);
+    // Blast-pad chevrons beyond both thresholds: a V per pad.
+    const bar = (x0, z0, x1, z1, w, col) => {
+      const dx = x1 - x0;
+      const dz = z1 - z0;
+      const len = Math.hypot(dx, dz) || 1;
+      const px = (-dz / len) * (w / 2);
+      const pz = (dx / len) * (w / 2);
+      quad(local, x0 - px, y + 0.2, z0 - pz, x0 + px, y + 0.2, z0 + pz, x1 + px, y + 0.2, z1 + pz, x1 - px, y + 0.2, z1 - pz, col);
+    };
+    for (const cz of [-466, 466]) {
+      const dir = cz < 0 ? 1 : -1;
+      for (let i = 0; i < 3; i += 1) {
+        const z = cz + dir * i * 9;
+        bar(0, z, -8, z + dir * 7, 1.6, [232, 196, 60]);
+        bar(0, z, 8, z + dir * 7, 1.6, [232, 196, 60]);
+      }
+    }
+    // Edge lights along both sides.
+    for (let z = -450; z <= 450; z += 90) {
+      for (const ex of [-11, 11]) {
+        quad(local, ex - 0.8, y + 0.4, z - 0.8, ex - 0.8, y + 0.4, z + 0.8, ex + 0.8, y + 0.4, z + 0.8, ex + 0.8, y + 0.4, z - 0.8, [255, 255, 255], 1, 1);
+      }
     }
     // Approach lights: green at the far threshold.
     for (let i = -2; i <= 2; i += 1) {
-      quad(mesh, rx + i * 4 - 1, y + 0.4, rz + 450 - 11, rx + i * 4 - 1, y + 0.4, rz + 450 - 9, rx + i * 4 + 1, y + 0.4, rz + 450 - 9, rx + i * 4 + 1, y + 0.4, rz + 450 - 11, [55, 224, 138], 1, 1);
+      quad(local, i * 4 - 1, y + 0.4, 450 - 11, i * 4 - 1, y + 0.4, 450 - 9, i * 4 + 1, y + 0.4, 450 - 9, i * 4 + 1, y + 0.4, 450 - 11, [55, 224, 138], 1, 1);
     }
     // PAPI: 2 red + 2 white beside the near threshold.
     for (let i = 0; i < 4; i += 1) {
       const col = i < 2 ? [255, 59, 48] : [255, 255, 255];
-      quad(mesh, rx + 25 + i * 5 - 1, y + 0.4, rz - 450 + 29, rx + 25 + i * 5 - 1, y + 0.4, rz - 450 + 31, rx + 25 + i * 5 + 1, y + 0.4, rz - 450 + 31, rx + 25 + i * 5 + 1, y + 0.4, rz - 450 + 29, col, 1, 1);
+      quad(local, 25 + i * 5 - 1, y + 0.4, -450 + 29, 25 + i * 5 - 1, y + 0.4, -450 + 31, 25 + i * 5 + 1, y + 0.4, -450 + 31, 25 + i * 5 + 1, y + 0.4, -450 + 29, col, 1, 1);
     }
+    // Rotate into the runway's heading and move to its map position.
+    for (const t of xformMesh(local, rw.heading, 0, 0, rw.x, 0, rw.z)) mesh.push(t);
   }
   return mesh;
 }
@@ -737,19 +866,62 @@ export function buildProps(world) {
   const mesh = [];
   const H = world.terrainHeight.bind(world);
   for (const prop of world.props) {
-    // Never put scenery on a runway.
-    const onRwA = Math.abs(prop.z - world.runwayA.z) < 480 && Math.abs(prop.x - world.runwayA.x) < 40;
-    const onRwB = Math.abs(prop.z - world.runwayB.z) < 480 && Math.abs(prop.x - world.runwayB.x) < 40;
+    // Never put scenery on a runway (in each runway's own frame).
+    const onRwA = (() => {
+      const f = runwayFrame(world.runwayA, prop.x, prop.z);
+      return Math.abs(f.along) < 480 && Math.abs(f.across) < 40;
+    })();
+    const onRwB = (() => {
+      const f = runwayFrame(world.runwayB, prop.x, prop.z);
+      return Math.abs(f.along) < 480 && Math.abs(f.across) < 40;
+    })();
     if (onRwA || onRwB) continue;
     const gy = H(prop.x, prop.z);
     const s = prop.s;
     if (prop.kind === 'building' || prop.kind === 'building2') {
       const w = (prop.kind === 'building' ? 22 : 30) * s;
       const h = (prop.kind === 'building' ? 38 : 58) * s;
-      const tones = [[148, 154, 164], [132, 142, 156], [158, 162, 170]];
-      const tone = tones[Math.abs(Math.floor(prop.x)) % 3];
+      // Varied building colours (not three greys): grey, beige, brick,
+      // sand, blue-grey, white — a city that reads as a city.
+      const tones = [
+        [148, 154, 164], [196, 182, 150], [172, 110, 88],
+        [210, 198, 168], [128, 146, 164], [224, 222, 214],
+      ];
+      const tone = tones[Math.abs(Math.floor(prop.x / 7) + Math.floor(prop.z / 11)) % tones.length];
       const roof = [96, 104, 114];
       boxAt(mesh, prop.x, gy + h / 2, prop.z, w, h, w, [roof, tone, tone, tone, tone, tone]);
+      // Windows: a light blue-grey glass band across the middle of each
+      // side face (inset, offset out so it never z-fights the wall) + a
+      // few lit windows. The v10 first render used a near-black full-face
+      // curtain wall — the buildings read as black monoliths.
+      const glass = [108, 130, 154];
+      const gy0 = gy + h * 0.25;
+      const gy1 = gy + h * 0.8;
+      const inset = 3;
+      const o = 0.15;
+      const hw = w / 2;
+      // +x face
+      quad(mesh, prop.x + hw + o, gy0, prop.z - hw + inset, prop.x + hw + o, gy1, prop.z - hw + inset, prop.x + hw + o, gy1, prop.z + hw - inset, prop.x + hw + o, gy0, prop.z + hw - inset, glass);
+      // -x face
+      quad(mesh, prop.x - hw - o, gy0, prop.z + hw - inset, prop.x - hw - o, gy1, prop.z + hw - inset, prop.x - hw - o, gy1, prop.z - hw + inset, prop.x - hw - o, gy0, prop.z - hw + inset, glass);
+      // +z face
+      quad(mesh, prop.x - hw + inset, gy0, prop.z + hw + o, prop.x + hw - inset, gy0, prop.z + hw + o, prop.x + hw - inset, gy1, prop.z + hw + o, prop.x - hw + inset, gy1, prop.z + hw + o, glass);
+      // -z face
+      quad(mesh, prop.x + hw - inset, gy0, prop.z - hw - o, prop.x - hw + inset, gy0, prop.z - hw - o, prop.x - hw + inset, gy1, prop.z - hw - o, prop.x + hw - inset, gy1, prop.z - hw - o, glass);
+      // Lit windows: warm, emissive, a few per building, hash-placed.
+      const lit = [255, 200, 100];
+      for (let k = 0; k < 3; k += 1) {
+        const hx = hash2(Math.floor(prop.x) + k * 13, Math.floor(prop.z) + k * 7);
+        const hz = hash2(Math.floor(prop.x) + k * 29, Math.floor(prop.z) + k * 3);
+        const wy = gy + 6 + hx * (h - 12);
+        const wz = prop.z - hw + inset + hz * (w - 2 * inset);
+        const wx = prop.x + hw + o + 0.1;
+        quad(mesh, wx, wy - 1.2, wz - 1.2, wx, wy + 1.2, wz - 1.2, wx, wy + 1.2, wz + 1.2, wx, wy - 1.2, wz + 1.2, lit, 1, 1);
+      }
+      // Rooftop box (AC unit / penthouse) for silhouette variety.
+      if (hash2(Math.floor(prop.x / 3), Math.floor(prop.z / 5)) > 0.5) {
+        boxAt(mesh, prop.x, gy + h + 2, prop.z, w * 0.4, 4, w * 0.4, [tone, tone, tone, tone, tone, tone]);
+      }
     } else if (prop.kind === 'palm') {
       const h = 16 * s;
       cylinderY(mesh, prop.x, gy + h / 2, prop.z, 0.9 * s, h, 6, [107, 74, 43]);
@@ -762,8 +934,14 @@ export function buildProps(world) {
       }
     } else if (prop.kind === 'pine' || prop.kind === 'tree') {
       const h = (prop.kind === 'pine' ? 22 : 15) * s;
-      boxAt(mesh, prop.x, gy + 1.5 * s, prop.z, 2 * s, 3 * s, 2 * s, [107, 74, 43]);
-      coneY(mesh, prop.x, gy + 2 * s, prop.z, h * 0.32, h, 7, prop.kind === 'pine' ? [47, 107, 52] : [61, 125, 58]);
+      if (prop.forest) {
+        // Forest pines on the slopes: cone only, no trunk (the trunk is
+        // invisible at distance, and 220 trees need to stay cheap).
+        coneY(mesh, prop.x, gy + 2 * s, prop.z, h * 0.32, h, 7, [47, 107, 52]);
+      } else {
+        boxAt(mesh, prop.x, gy + 1.5 * s, prop.z, 2 * s, 3 * s, 2 * s, [107, 74, 43]);
+        coneY(mesh, prop.x, gy + 2 * s, prop.z, h * 0.32, h, 7, prop.kind === 'pine' ? [47, 107, 52] : [61, 125, 58]);
+      }
     } else if (prop.kind === 'cactus') {
       const h = 14 * s;
       boxAt(mesh, prop.x, gy + h / 2, prop.z, 4.8 * s, h, 4.8 * s, [61, 125, 58]);
@@ -811,9 +989,11 @@ export function buildClouds(world) {
   if (world.level.storm) {
     for (const cloud of world.stormClouds) {
       const s = cloud.s;
-      icosahedron(mesh, cloud.x, cloud.y, cloud.z, s, [72, 80, 92]);
-      icosahedron(mesh, cloud.x + s * 0.6, cloud.y - s * 0.12, cloud.z, s * 0.6, [58, 66, 78]);
-      icosahedron(mesh, cloud.x - s * 0.55, cloud.y - s * 0.08, cloud.z + s * 0.2, s * 0.5, [86, 94, 106]);
+      // Lighter than v9's near-black — the dark blobs read as floating
+      // rocks, not storm cloud.
+      icosahedron(mesh, cloud.x, cloud.y, cloud.z, s, [118, 126, 138], 0.9);
+      icosahedron(mesh, cloud.x + s * 0.6, cloud.y - s * 0.12, cloud.z, s * 0.6, [102, 110, 122], 0.9);
+      icosahedron(mesh, cloud.x - s * 0.55, cloud.y - s * 0.08, cloud.z + s * 0.2, s * 0.5, [132, 140, 152], 0.9);
     }
   }
   return mesh;
@@ -829,8 +1009,8 @@ export function buildRings(world) {
   const rings = world.rings;
   for (let i = 0; i < rings.length; i += 1) {
     const ring = rings[i];
-    const prev = rings[i - 1] ?? { x: 0, y: ring.y, z: 0 };
-    const nxt = rings[i + 1] ?? { x: world.runwayB.x, y: ring.y, z: 5600 };
+    const prev = rings[i - 1] ?? { x: world.runwayA.x, y: ring.y, z: world.runwayA.z };
+    const nxt = rings[i + 1] ?? { x: world.runwayB.x, y: ring.y, z: world.runwayB.z };
     let nx = nxt.x - prev.x;
     let ny = nxt.y - prev.y;
     let nz = nxt.z - prev.z;

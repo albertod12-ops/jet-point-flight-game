@@ -5,47 +5,65 @@
 export const STEP = 1 / 60;
 export const BEST_KEY = 'jet-point-best';
 
-// Five legs, one per scenery, plus a free-roam adventure map. Each leg flies
-// roughly north from its own runway A to its runway B (~5-6 km apart).
+// Five legs, ONE map (v10: the user's 20:40 WIB correction — one GTA-style
+// map for all legs, not five separate worlds). Each leg is a ROUTE inside
+// the same map: it starts at the main airport (runway A) and lands on a
+// strip in another district (runway B). start: [x, z] of runway A (map
+// metres); heading: the leg direction in radians (0 = north, +pi/2 = east,
+// -pi/2 = west) — runway A and B are both aligned with it. strip: the
+// name of the landing strip. ridge: the distant-ridge palette for drawSky.
 // wind: base wind vector (m/s) the gusts ride on. storm: rain + low cloud.
 // traffic: how many other aircraft share the sky. weave: how far the route
 // snakes sideways. ceiling: highest the jet may climb on this leg.
+// ringBase: the base altitude (m) of the waypoint rings on this leg.
 export const LEVELS = [
   {
     id: 1, name: 'Metro Hop', place: 'City — day, clear',
-    theme: 'city', sky: ['#2f6fd0', '#7fb2e5', '#bcd9f2'], sun: [0.78, 92],
+    sky: ['#2f6fd0', '#7fb2e5', '#bcd9f2'], sun: [0.78, 92], ridge: 'city',
+    start: [0, 0], heading: 0, strip: 'Metro Field',
     wind: 4, gust: 3, storm: false, traffic: 6, weave: 400, ceiling: 320,
-    time: 300, fogFar: 2600, note: 'Follow the route ribbon over downtown, land at Metro Field.',
+    time: 300, fogFar: 2600, ringBase: 140,
+    note: 'Follow the route ribbon over downtown, land at Metro Field.',
   },
   {
     id: 2, name: 'Sunset Coast', place: 'Beach — golden hour',
-    theme: 'beach', sky: ['#e8863a', '#f2a65e', '#ffd9a0'], sun: [0.2, 120],
+    sky: ['#e8863a', '#f2a65e', '#ffd9a0'], sun: [0.2, 120], ridge: 'beach',
+    start: [-150, -250], heading: -Math.PI / 2, strip: 'Island Strip',
     wind: 8, gust: 6, storm: false, traffic: 6, weave: 460, ceiling: 340,
-    time: 300, fogFar: 2400, note: 'Coastline on your left, waypoints over the surf.',
+    time: 300, fogFar: 2400, ringBase: 110,
+    note: 'Coastline on your left, waypoints over the surf, land on the island.',
   },
   {
     id: 3, name: 'Storm Crossing', place: 'Open sea — thunderstorm',
-    theme: 'sea', sky: ['#3a4552', '#5a6675', '#8a97a5'], sun: [0.5, 60],
+    sky: ['#3a4552', '#5a6675', '#8a97a5'], sun: [0.5, 60], ridge: 'sea',
+    start: [150, -250], heading: -Math.PI / 4, strip: 'North Island Strip',
     wind: 14, gust: 14, storm: true, traffic: 7, weave: 520, ceiling: 300,
-    time: 330, fogFar: 1500, note: 'Rain, lightning and a rough sea. Fly the waypoints, stay dry.',
+    time: 330, fogFar: 1500, ringBase: 130,
+    note: 'Rain, lightning and a rough sea. Fly the waypoints, stay dry.',
   },
   {
     id: 4, name: 'Alpine Pass', place: 'Mountains — high wind',
-    theme: 'mountain', sky: ['#4a7ec2', '#8fb4d8', '#d7e8f5'], sun: [0.82, 80],
+    sky: ['#4a7ec2', '#8fb4d8', '#d7e8f5'], sun: [0.82, 80], ridge: 'mountain',
+    start: [-150, 250], heading: Math.PI / 4, strip: 'Alpine Strip',
     wind: 12, gust: 16, storm: false, traffic: 7, weave: 480, ceiling: 380,
-    time: 330, fogFar: 2200, note: 'Peaks on both sides. The gusts will shove you — correct.',
+    time: 330, fogFar: 2200, ringBase: 150,
+    note: 'Peaks on both sides. The gusts will shove you — correct.',
   },
   {
     id: 5, name: 'Desert Dash', place: 'Desert — dusk, busy sky',
-    theme: 'desert', sky: ['#c96a3a', '#e8a05e', '#f5cf9a'], sun: [0.15, 150],
+    sky: ['#c96a3a', '#e8a05e', '#f5cf9a'], sun: [0.15, 150], ridge: 'desert',
+    start: [150, 250], heading: Math.PI / 2, strip: 'Desert Strip',
     wind: 10, gust: 9, storm: false, traffic: 8, weave: 460, ceiling: 340,
-    time: 300, fogFar: 2300, note: 'Canyons below, six aircraft sharing the route.',
+    time: 300, fogFar: 2300, ringBase: 110,
+    note: 'Canyons below, six aircraft sharing the route.',
   },
   {
     id: 0, name: 'Free Roam', place: 'Adventure — the whole map',
-    theme: 'adventure', sky: ['#2f6fd0', '#7fb2e5', '#bcd9f2'], sun: [0.78, 92],
+    sky: ['#2f6fd0', '#7fb2e5', '#bcd9f2'], sun: [0.78, 92], ridge: 'city',
+    start: [0, 0], heading: 0, strip: 'Main Airport',
     wind: 6, gust: 6, storm: false, traffic: 8, weave: 0, ceiling: 420,
-    time: 600, fogFar: 2600, note: 'No fixed route. Explore, thread any waypoint, land when ready.',
+    time: 600, fogFar: 2600, ringBase: 110,
+    note: 'No fixed route. Explore, thread any waypoint, land when ready.',
   },
 ];
 

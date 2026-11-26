@@ -102,14 +102,14 @@ export function createRenderer(canvas) {
     // Distant ridges + haze sit ON the tilted horizon (v4): the same
     // rotated frame as the ground, so the ridge bases meet the ground's
     // top edge and no mountain floats in the sky when the jet banks.
-    // v8: ridge colours follow the level theme — green mountains in a
-    // desert-dusk leg (v7 shot 4) were off-theme.
+    // v8: ridge colours follow the level's ridge palette — green mountains in a
+    // desert-dusk leg (v7 shot 4) were off-theme. v10: keyed by level.ridge.
     const ridgePalettes = {
       desert: [['rgba(122,84,58,0.8)', 'rgba(178,128,88,0.8)'], ['rgba(96,64,44,0.88)', 'rgba(150,102,66,0.88)'], ['rgba(72,46,32,0.92)', 'rgba(122,80,52,0.92)']],
       sea: [['rgba(70,88,88,0.8)', 'rgba(116,134,132,0.8)'], ['rgba(52,68,68,0.88)', 'rgba(92,110,108,0.88)'], ['rgba(36,50,50,0.92)', 'rgba(70,88,86,0.92)']],
       beach: [['rgba(110,128,88,0.8)', 'rgba(168,178,132,0.8)'], ['rgba(84,102,64,0.88)', 'rgba(138,150,104,0.88)'], ['rgba(60,78,46,0.92)', 'rgba(108,122,80,0.92)']],
     };
-    const ridgePal = ridgePalettes[level.theme] || [['rgba(96,138,110,0.8)', 'rgba(150,180,150,0.8)'], ['rgba(70,118,70,0.88)', 'rgba(120,160,105,0.88)'], ['rgba(48,92,52,0.92)', 'rgba(88,132,76,0.92)']];
+    const ridgePal = ridgePalettes[level.ridge] || [['rgba(96,138,110,0.8)', 'rgba(150,180,150,0.8)'], ['rgba(70,118,70,0.88)', 'rgba(120,160,105,0.88)'], ['rgba(48,92,52,0.92)', 'rgba(88,132,76,0.92)']];
     const horizonY = HORIZON_Y + FOCAL * Math.sin(state.pitch);
     ctx.save();
     ctx.translate(CX, horizonY);
@@ -1056,19 +1056,22 @@ export function createRenderer(canvas) {
       return;
     }
     if (view === VIEW_TPP) {
-      // Chase camera, v9: more lateral and lower than v4 (side 14, back
-      // 16, up 3 — ~22 m, ~41° off the tail axis), so the jet reads as a
-      // three-quarter SIDE profile like the FA-50 reference, not from above.
-      const side = 14;
-      const back = 16;
+      // Chase camera, v10: further back and higher than v9 (side 16,
+      // back 20, up 4 — ~26 m), and pitched slightly UP (s.pitch + 0.02)
+      // so the horizon sits lower in the frame and BLUE SKY shows above
+      // the mountains — the v9 TPP shot had no sky at all because the
+      // 500 m peaks filled the frame. The jet sits in the lower third,
+      // like the FA-50 reference.
+      const side = 16;
+      const back = 20;
       const camX = s.x - Math.sin(s.heading) * back + Math.cos(s.heading) * side;
       const camZ = s.z - Math.cos(s.heading) * back - Math.sin(s.heading) * side;
       const cam = {
         x: camX,
-        y: s.y + 3,
+        y: s.y + 4,
         z: camZ,
         heading: Math.atan2(s.x - camX, s.z - camZ),
-        pitch: s.pitch - 0.06,
+        pitch: s.pitch + 0.02,
         bank: s.bank * 0.35,
         time: s.time,
         tpp: true,

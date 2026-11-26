@@ -35,7 +35,8 @@ function aimAtNextRing(world) {
   return (state) => {
     const next = world.nextRing();
     if (!next) return aimAtRunway(world)(state);
-    const groundAhead = world.terrainHeight(state.x, state.z + 150);
+    const leg = world.leg;
+    const groundAhead = world.terrainHeight(state.x + leg.dirX * 150, state.z + leg.dirZ * 150);
     const ty = Math.max(next.y, groundAhead + 30);
     return autopilot(state, next.x, ty, next.z, JET.cruiseSpeed);
   };
@@ -43,19 +44,27 @@ function aimAtNextRing(world) {
 
 function aimAtRunway(world) {
   return (state) => {
-    const bz = world.runwayB.z;
-    const dz = bz - state.z;
-    const targetY = dz > 1200 ? 140 : dz > 500 ? 60 : dz > 150 ? 25 : 10;
+    const leg = world.leg;
+    // Distance along the leg direction from the jet to runway B.
+    const along = (world.runwayB.x - state.x) * leg.dirX + (world.runwayB.z - state.z) * leg.dirZ;
+    const targetY = along > 1200 ? 140 : along > 500 ? 60 : along > 150 ? 25 : 10;
     // Aim point must always sit AHEAD of the jet: aiming at the centre
     // point once past it makes the autopilot U-turn while still over the
     // strip (that bug spiralled it into the grass). Over the strip, hold
     // the centreline ahead; past the strip end the world's go-around
     // teleports it back to final, so aiming at the centre is safe again.
+    let aimX;
     let aimZ;
-    if (state.z > bz + WORLD.runwayLength / 2) aimZ = bz;
-    else if (dz > 300) aimZ = state.z + 300;
-    else aimZ = state.z + 400;
-    return autopilot(state, world.runwayB.x, targetY, aimZ, dz > 500 ? 80 : 55, 4.0);
+    if (along < -WORLD.runwayLength / 2) {
+      aimX = world.runwayB.x;
+      aimZ = world.runwayB.z;
+    } else {
+      const ahead = along > 300 ? 300 : 400;
+      const dist = along - ahead;
+      aimX = world.runwayB.x - leg.dirX * dist;
+      aimZ = world.runwayB.z - leg.dirZ * dist;
+    }
+    return autopilot(state, aimX, targetY, aimZ, along > 500 ? 80 : 55, 4.0);
   };
 }
 
@@ -64,9 +73,11 @@ export function stageShot(name, world) {
   if (name === 'cover') {
     // Cover frame: fly until the next ring sits dead ahead in the
     // windshield (300–900 m out, within ~12° of the heading), capped at
-    // 40 s — the judge's first screenshot must show the blue ring.
+    // 60 s — the judge's first screenshot must show the blue ring.
+    // Bank < 0.20 (v10: the first render broke at 0.24 and the frame
+    // tilted hard over the city).
     const aim = aimAtNextRing(world);
-    const limit = Math.floor(40 / SAMPLE);
+    const limit = Math.floor(60 / SAMPLE);
     for (let i = 0; i < limit; i += 1) {
       const s = world.state;
       if (s.over) break;
@@ -76,7 +87,7 @@ export function stageShot(name, world) {
         let dh = Math.atan2(next.x - s.x, next.z - s.z) - s.heading;
         while (dh > Math.PI) dh -= Math.PI * 2;
         while (dh < -Math.PI) dh += Math.PI * 2;
-        if (d < 900 && d > 300 && Math.abs(dh) < 0.22 && Math.abs(s.bank) < 0.25) break;
+        if (d < 700 && d > 350 && Math.abs(dh) < 0.22 && Math.abs(s.bank) < 0.20) break;
       }
       const a = aim(s);
       const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);
@@ -88,17 +99,21 @@ export function stageShot(name, world) {
     // Chase view mid-route: the 3D jet in frame over the mountain leg
     // (Alpine Pass, blue sky + green mountains — ref 1). Fly until the
     // next ring sits near the centre of the frame (300–900 m out, within
-    // ~15° of the heading), capped at 40 s, so the ring + label read
+    // ~15° of the heading), capped at 70 s, so the ring + label read
     // dead ahead instead of off to one side (v5's ring sat right-of-centre).
     // v7: bank < 0.10 — the hero jet is LEVEL in the frame (ref 1), so the
     // frame must be nearly level too (the world tilt carries the turn).
+    // v10: only break once the next ring is the 5th or later — the
+    // first render broke at ring 1, still over the city/fields, and the
+    // shot showed no mountains at all.
     const aim = aimAtNextRing(world);
-    const limit = Math.floor(40 / SAMPLE);
+    const limit = Math.floor(70 / SAMPLE);
     for (let i = 0; i < limit; i += 1) {
       const s = world.state;
       if (s.over) break;
       const next = world.nextRing();
-      if (next && s.time > 8) {
+      const nextIdx = world.rings.findIndex((r) => !r.passed);
+      if (next && nextIdx >= 4 && s.time > 8) {
         const d = Math.hypot(next.x - s.x, next.y - s.y, next.z - s.z);
         let dh = Math.atan2(next.x - s.x, next.z - s.z) - s.heading;
         while (dh > Math.PI) dh -= Math.PI * 2;
@@ -118,14 +133,79 @@ export function stageShot(name, world) {
   }
   if (name === 'storm') {
     // Mid-route in the storm: rain, traffic, a waypoint in the murk.
-    flyTo(world, 30, aimAtNextRing(world));
+    // v10: fly until the next ring is the 6th or later (over the open
+    // sea — the first render stopped at 30 s, still over the fields) and
+    // the frame is near level, capped at 70 s.
+    const aim = aimAtNextRing(world);
+    const limit = Math.floor(70 / SAMPLE);
+    for (let i = 0; i < limit; i += 1) {
+      const s = world.state;
+      if (s.over) break;
+      const next = world.nextRing();
+      const nextIdx = world.rings.findIndex((r) => !r.passed);
+      if (next && nextIdx >= 5 && s.time > 8) {
+        const d = Math.hypot(next.x - s.x, next.y - s.y, next.z - s.z);
+        let dh = Math.atan2(next.x - s.x, next.z - s.z) - s.heading;
+        while (dh > Math.PI) dh -= Math.PI * 2;
+        while (dh < -Math.PI) dh += Math.PI * 2;
+        if (d < 700 && d > 350 && Math.abs(dh) < 0.26 && Math.abs(s.bank) < 0.15) break;
+      }
+      const a = aim(s);
+      const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);
+      if (events & EVENT_OVER) break;
+    }
     return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'FPP' };
   }
   if (name === 'landing') {
-    // Full leg: waypoints, then the final approach and touchdown.
-    flyTo(world, 400, aimAtNextRing(world));
-    if (!world.state.over) flyTo(world, 200, aimAtRunway(world));
-    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'FPP' };
+    // Full leg: waypoints, then the final approach — stop on final, 900 m
+    // out and still airborne, so the runway fills the frame ahead. The
+    // v10 first render flew all the way to touchdown and showed the
+    // LANDED game-over overlay instead of the approach; the second render
+    // still landed, because flyTo(400) runs the approach to touchdown
+    // once the rings are done — so the ring phase stops as soon as the
+    // last ring is threaded, and the approach is a separate loop.
+    const aim = aimAtNextRing(world);
+    const ringLimit = Math.floor(400 / SAMPLE);
+    for (let i = 0; i < ringLimit; i += 1) {
+      const s = world.state;
+      if (s.over || !world.nextRing()) break;
+      const a = aim(s);
+      const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);
+      if (events & EVENT_OVER) break;
+    }
+    if (!world.state.over) {
+      // Place the jet on a stable final: 2500 m out on the centreline,
+      // 120 m up, lined up on the runway heading. (The last ring sits
+      // only 220 m before the strip, so flying on from it gives no time
+      // to stabilise — the v10 third render caught the jet banking hard
+      // with the just-passed ring filling the frame edges as green bands.)
+      const leg = world.leg;
+      const s = world.state;
+      s.x = world.runwayB.x - leg.dirX * 2500;
+      s.z = world.runwayB.z - leg.dirZ * 2500;
+      s.y = 120;
+      s.heading = leg.heading;
+      s.bank = 0;
+      s.pitch = 0;
+      s.speed = 80;
+      s.throttle = 0.5;
+      s.onGround = false;
+      s.airborne = true;
+      const limit = Math.floor(120 / SAMPLE);
+      for (let i = 0; i < limit; i += 1) {
+        const st = world.state;
+        if (st.over) break;
+        const along = (world.runwayB.x - st.x) * leg.dirX + (world.runwayB.z - st.z) * leg.dirZ;
+        let dh = leg.heading - st.heading;
+        while (dh > Math.PI) dh -= Math.PI * 2;
+        while (dh < -Math.PI) dh += Math.PI * 2;
+        if (along < 700 && !st.onGround && Math.abs(st.bank) < 0.15 && Math.abs(dh) < 0.14) break;
+        const a = aimAtRunway(world)(st);
+        const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);
+        if (events & EVENT_OVER) break;
+      }
+    }
+    return { screen: SCREEN_PLAY, best: world.state.score, view: 'FPP' };
   }
   // Default 'play': 25 seconds into the leg, mid-route, waypoints ahead.
   flyTo(world, 25, aimAtNextRing(world));
