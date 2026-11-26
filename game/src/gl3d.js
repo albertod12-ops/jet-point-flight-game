@@ -558,19 +558,19 @@ export function terrainFaceColor(world, wx, wz, h) {
       const rr = isl.d / isl.island.r;
       const t = 1 - sstep(0.55, 0.9, rr + mot * 0.05);
       const land = mix3(shadeArr([216, 198, 158], 1 + fine * 0.05), shadeArr([92, 140, 82], 1 + mot * 0.12 + fine * 0.05), t);
-      c = mix3(c, land, sstep(0, 12, h + 4 * vnoise2(wx * 0.003 + 4, wz * 0.003 - 8))); // wiggly island waterline, never a staircase
+      c = mix3(c, land, sstep(0, 12, h + 4 * vnoise2(wx * 0.003 + 4, wz * 0.003 - 8)));
     }
     if (h > 9 && fo > 0) c = mix3(c, canopy, fo * 0.85);
-    const sh = sstep(-200, 80, wx - coastX(wz) + 90 * vnoise2(wx * 0.003 + 4, wz * 0.003 - 8)); // shallows grading into a wiggly waterline (v16: no hard step, no staircase)
+    const sh = sstep(-200, 80, wx - coastX(wz) + 90 * vnoise2(wx * 0.003 + 4, wz * 0.003 - 8));
     if (sh > 0) c = mix3(c, shadeArr([198, 176, 132], 1 + fine * 0.04), sh * 0.85);
     return c;
   }
   if (dist === 'beach') {
-    const d = wx - coastX(wz) + 90 * vnoise2(wx * 0.003 + 4, wz * 0.003 - 8); // wiggly waterline: the shore curves, never a staircase
+    const d = wx - coastX(wz) + 90 * vnoise2(wx * 0.003 + 4, wz * 0.003 - 8);
     const sea = shadeArr([40, 118, 178], 1 + fine * 0.05);
     const wet = shadeArr([198, 176, 132], 1 + fine * 0.04);
     const dune = Math.sin((wx * 0.35 + wz) * 0.03 + mot * 1.6);
-    const dry = shadeArr([216, 190, 138], 1 + dune * 0.07 + mot * 0.06 + fine * 0.04);
+    const dry = shadeArr(mix3([216, 190, 138], [186, 204, 218], sstep(3000, 3400, wz + 300 * mot)), 1 + dune * 0.07 + mot * 0.06 + fine * 0.04);
     return mix3(mix3(sea, wet, sstep(-200, 80, d)), dry, sstep(80, 480, d));
   }
   if (dist === 'city') {
@@ -609,18 +609,19 @@ export function terrainFaceColor(world, wx, wz, h) {
       const edge = clamp(0.5 + patch * 0.9, 0, 1);
       c = shadeArr(mix3(field, [122, 152, 92], edge * 0.6), light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
     } else if (high > 118) {
-      c = shadeArr(mix3([62, 100, 62], [104, 98, 88], sstep(-0.1, 0.3, patch)), light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
+      c = shadeArr(mix3([232, 238, 244], [246, 248, 250], sstep(-0.1, 0.3, patch)), light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
     } else {
       const forest = mix3([96, 146, 86], [84, 132, 80], sstep(-0.2, 0.2, patch));
       const fine2 = vnoise2(wx * 0.008 + 3, wz * 0.008 - 8);
       c = shadeArr(forest, light * (1 + mot * 0.12 + fine * 0.05 + fine2 * 0.06 + grain * 0.03));
       c = shadeArr(c, 1 - 0.12 * sstep(0.35, 0.75, patch2));
+      c = mix3(c, shadeArr([238, 244, 250], light), sstep(96, 118, high));
     }
     if (Math.abs(slope) > 0.55 && high > 60) c = shadeArr([108, 102, 92], light * (1 + mot * 0.06 + grain * 0.03));
     if (fo > 0) c = mix3(c, canopy, fo * 0.85);
     if (high < 60 && dr < 45) {
       const dw = dr + 7 * vnoise2(wx * 0.0025 + 9, wz * 0.0025 - 4);
-      const w = 16 + 14 * (0.5 + 0.5 * vnoise2(wx * 0.002 + 3, wz * 0.002 - 7)); // width varies: pools and narrows, a winding stream
+      const w = 16 + 14 * (0.5 + 0.5 * vnoise2(wx * 0.002 + 3, wz * 0.002 - 7));
       const river = 1 - sstep(w, w + 8, dw);
       const bank = (1 - sstep(w + 5, w + 11, dw)) * (1 - river);
       c = mix3(c, shadeArr([198, 186, 140], light), bank);
@@ -629,7 +630,7 @@ export function terrainFaceColor(world, wx, wz, h) {
     return c;
   }
   const lakeD = Math.hypot(wx - MAP.lake.x, wz - MAP.lake.z);
-  const lake = 1 - sstep(lakeR(wx, wz) - 30, lakeR(wx, wz) + 30, lakeD); // soft organic shoreline, never a quad edge
+  const lake = 1 - sstep(lakeR(wx, wz) - 30, lakeR(wx, wz) + 30, lakeD);
   const patch = vnoise2(wx * 0.006 + 31, wz * 0.006 + 11);
   const patchB = vnoise2(wx * 0.0035 - 17, wz * 0.0035 + 29);
   const w1 = sstep(-0.55, -0.05, patchB);
@@ -648,13 +649,13 @@ export function terrainFaceColor(world, wx, wz, h) {
   if (hedge > 0) base = mix3(base, shadeArr([74, 104, 58], sub * (1 + mot * 0.08)), hedge * 0.85);
   if (dr < 45) {
     const dw = dr + 7 * vnoise2(wx * 0.0025 + 9, wz * 0.0025 - 4);
-    const w = 16 + 14 * (0.5 + 0.5 * vnoise2(wx * 0.002 + 3, wz * 0.002 - 7)); // width varies: pools and narrows, a winding stream
+    const w = 16 + 14 * (0.5 + 0.5 * vnoise2(wx * 0.002 + 3, wz * 0.002 - 7));
     const river = 1 - sstep(w, w + 8, dw);
     const bank = (1 - sstep(w + 5, w + 11, dw)) * (1 - river);
     base = mix3(base, shadeArr([198, 186, 140], 1), bank);
     base = mix3(base, shadeArr([64, 128, 148], 1 + fine * 0.06), river);
   }
-  if (lake > 0) base = mix3(base, shadeArr([58, 124, 158], 1 + fine * 0.08), lake);
+  if (lake > 0) base = mix3(base, shadeArr(mix3([58, 124, 158], [188, 210, 224], sstep(-0.2, 0.4, patch)), 1 + fine * 0.08), lake);
   return fo > 0 ? mix3(base, canopy, fo * 0.85) : base;
 }
 
@@ -964,7 +965,7 @@ function buildBuilding(mesh, prop, gy, H, rwA, rwB) {
   const h3 = hash2(seed + 29, seed + 41);
   const w = (prop.kind === 'building' ? 22 : 30) * s;
   const h = (prop.kind === 'building' ? 38 : 58) * s;
-  const glassTints = [[104, 102, 98], [100, 100, 98], [108, 106, 100], [96, 102, 94], [96, 72, 52], [140, 138, 134]]; // warm neutral glass, no blue cast (v16: the blue panels read as random blue blobs)
+  const glassTints = [[104, 102, 98], [100, 100, 98], [108, 106, 100], [96, 102, 94], [96, 72, 52], [140, 138, 134]];
   const frameTints = [[198, 206, 214], [226, 220, 208], [96, 84, 70]];
   const wallTints = [[198, 172, 138], [176, 112, 84], [226, 214, 190], [170, 162, 150], [156, 92, 70], [210, 196, 158], [190, 150, 120], [120, 110, 100]];
   const glass = glassTints[Math.floor(h1 * glassTints.length) % glassTints.length];
@@ -1040,7 +1041,7 @@ export function buildProps(world) {
     if (prop.kind === 'building' || prop.kind === 'building2') {
       buildBuilding(mesh, prop, gy, H, world.runwayA, world.runwayB);
     } else if (prop.kind === 'landmark') {
-      tower(mesh, prop.x, prop.z, gy, 34, 95, 0, [78, 80, 84], [198, 206, 214], [170, 162, 150], [74, 80, 88], 12345); // v16: landmark glass neutral grey, was vivid blue [52,84,124]
+      tower(mesh, prop.x, prop.z, gy, 34, 95, 0, [78, 80, 84], [198, 206, 214], [170, 162, 150], [74, 80, 88], 12345);
       coneY(mesh, prop.x, gy + 96.4, prop.z, 1.2, 18, 5, [90, 94, 100]);
       boxAt(mesh, prop.x, gy + 97, prop.z, 8, 1.2, 8, [198, 206, 214]);
     } else if (prop.kind === 'palm') {

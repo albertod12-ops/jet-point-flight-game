@@ -97,7 +97,7 @@ export function createRenderer(canvas) {
       sea: [['rgba(70,88,88,0.8)', 'rgba(116,134,132,0.8)'], ['rgba(52,68,68,0.88)', 'rgba(92,110,108,0.88)'], ['rgba(36,50,50,0.92)', 'rgba(70,88,86,0.92)']],
       beach: [['rgba(110,128,88,0.8)', 'rgba(168,178,132,0.8)'], ['rgba(84,102,64,0.88)', 'rgba(138,150,104,0.88)'], ['rgba(60,78,46,0.92)', 'rgba(108,122,80,0.92)']],
     };
-    const ridgePal = ridgePalettes[level.ridge] || [['rgba(96,138,110,0.8)', 'rgba(150,180,150,0.8)'], ['rgba(70,118,70,0.88)', 'rgba(120,160,105,0.88)'], ['rgba(48,92,52,0.92)', 'rgba(88,132,76,0.92)']];
+    const ridgePal = ridgePalettes[level.ridge] || [['rgba(206,222,236,0.8)', 'rgba(236,244,250,0.8)'], ['rgba(178,198,220,0.88)', 'rgba(222,234,244,0.88)'], ['rgba(150,172,198,0.92)', 'rgba(204,220,236,0.92)']];
     const horizonY = HORIZON_Y + FOCAL * Math.sin(state.pitch);
     ctx.save();
     ctx.translate(CX, horizonY);

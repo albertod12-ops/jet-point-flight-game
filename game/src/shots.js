@@ -154,7 +154,7 @@ export function stageShot(name, world) {
       const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);
       if (events & EVENT_OVER) break;
     }
-    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'FPP' };
+    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'TPP' };
   }
   if (name === 'landing') {
     // Full leg: waypoints, then the final approach — stop on final, 900 m
