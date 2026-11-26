@@ -14,38 +14,38 @@ export const LEVELS = [
   {
     id: 1, name: 'Metro Hop', place: 'City — day, clear',
     theme: 'city', sky: ['#2f6fd0', '#7fb2e5', '#bcd9f2'], sun: [0.78, 92],
-    wind: 4, gust: 3, storm: false, traffic: 3, weave: 240, ceiling: 320,
-    time: 300, fogFar: 2600, note: 'Thread the rings over downtown, land at Metro Field.',
+    wind: 4, gust: 3, storm: false, traffic: 6, weave: 400, ceiling: 320,
+    time: 300, fogFar: 2600, note: 'Follow the route ribbon over downtown, land at Metro Field.',
   },
   {
     id: 2, name: 'Sunset Coast', place: 'Beach — golden hour',
     theme: 'beach', sky: ['#e8863a', '#f2a65e', '#ffd9a0'], sun: [0.2, 120],
-    wind: 8, gust: 6, storm: false, traffic: 4, weave: 300, ceiling: 340,
-    time: 300, fogFar: 2400, note: 'Coastline on your left, rings over the surf.',
+    wind: 8, gust: 6, storm: false, traffic: 6, weave: 460, ceiling: 340,
+    time: 300, fogFar: 2400, note: 'Coastline on your left, waypoints over the surf.',
   },
   {
     id: 3, name: 'Storm Crossing', place: 'Open sea — thunderstorm',
     theme: 'sea', sky: ['#3a4552', '#5a6675', '#8a97a5'], sun: [0.5, 60],
-    wind: 14, gust: 14, storm: true, traffic: 5, weave: 380, ceiling: 300,
-    time: 330, fogFar: 1500, note: 'Rain, lightning and a rough sea. Fly the rings, stay dry.',
+    wind: 14, gust: 14, storm: true, traffic: 7, weave: 520, ceiling: 300,
+    time: 330, fogFar: 1500, note: 'Rain, lightning and a rough sea. Fly the waypoints, stay dry.',
   },
   {
     id: 4, name: 'Alpine Pass', place: 'Mountains — high wind',
     theme: 'mountain', sky: ['#4a7ec2', '#8fb4d8', '#d7e8f5'], sun: [0.82, 80],
-    wind: 12, gust: 16, storm: false, traffic: 4, weave: 340, ceiling: 380,
+    wind: 12, gust: 16, storm: false, traffic: 7, weave: 480, ceiling: 380,
     time: 330, fogFar: 2200, note: 'Peaks on both sides. The gusts will shove you — correct.',
   },
   {
     id: 5, name: 'Desert Dash', place: 'Desert — dusk, busy sky',
     theme: 'desert', sky: ['#c96a3a', '#e8a05e', '#f5cf9a'], sun: [0.15, 150],
-    wind: 10, gust: 9, storm: false, traffic: 6, weave: 300, ceiling: 340,
+    wind: 10, gust: 9, storm: false, traffic: 8, weave: 460, ceiling: 340,
     time: 300, fogFar: 2300, note: 'Canyons below, six aircraft sharing the route.',
   },
   {
     id: 0, name: 'Free Roam', place: 'Adventure — the whole map',
     theme: 'adventure', sky: ['#2f6fd0', '#7fb2e5', '#bcd9f2'], sun: [0.78, 92],
-    wind: 6, gust: 6, storm: false, traffic: 5, weave: 0, ceiling: 420,
-    time: 600, fogFar: 2600, note: 'No fixed route. Explore, thread any ring, land when ready.',
+    wind: 6, gust: 6, storm: false, traffic: 8, weave: 0, ceiling: 420,
+    time: 600, fogFar: 2600, note: 'No fixed route. Explore, thread any waypoint, land when ready.',
   },
 ];
 
@@ -70,9 +70,9 @@ export const JET = {
   maxClimb: 22, // m/s vertical
   maxSink: 26,
   startFuel: 100,
-  fuelDrain: 0.30, // per second at cruise
-  fuelDrainThrottle: 0.28, // extra per second at full throttle
-  ringFuel: 6,
+  fuelDrain: 0.70, // per second at cruise — a full leg now costs real fuel
+  fuelDrainThrottle: 0.45, // extra per second at full throttle
+  ringFuel: 2, // waypoints top up a little fuel, they no longer refill it
   minAltitude: 5, // m above terrain — any lower is a crash
 };
 

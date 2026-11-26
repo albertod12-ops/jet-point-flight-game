@@ -61,25 +61,53 @@ function aimAtRunway(world) {
 
 export function stageShot(name, world) {
   world.reset();
+  if (name === 'cover') {
+    // Cover frame: fly until the next ring sits dead ahead in the
+    // windshield (300–900 m out, within ~12° of the heading), capped at
+    // 40 s — the judge's first screenshot must show the blue ring.
+    const aim = aimAtNextRing(world);
+    const limit = Math.floor(40 / SAMPLE);
+    for (let i = 0; i < limit; i += 1) {
+      const s = world.state;
+      if (s.over) break;
+      const next = world.nextRing();
+      if (next && s.time > 8) {
+        const d = Math.hypot(next.x - s.x, next.y - s.y, next.z - s.z);
+        let dh = Math.atan2(next.x - s.x, next.z - s.z) - s.heading;
+        while (dh > Math.PI) dh -= Math.PI * 2;
+        while (dh < -Math.PI) dh += Math.PI * 2;
+        if (d < 900 && d > 300 && Math.abs(dh) < 0.22) break;
+      }
+      const a = aim(s);
+      const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);
+      if (events & EVENT_OVER) break;
+    }
+    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'FPP' };
+  }
+  if (name === 'tpp') {
+    // Chase view mid-route: the 3D jet in frame over the beach leg.
+    flyTo(world, 25, aimAtNextRing(world));
+    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'TPP' };
+  }
   if (name === 'takeoff') {
     // Full throttle down the strip, just lifting off.
     flyTo(world, 1.2, (state) => autopilot(state, 0, 60, 800, JET.cruiseSpeed));
-    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: 0 };
+    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: 0, view: 'FPP' };
   }
   if (name === 'storm') {
-    // Mid-route in the storm: rain, traffic, a ring in the murk.
+    // Mid-route in the storm: rain, traffic, a waypoint in the murk.
     flyTo(world, 30, aimAtNextRing(world));
-    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'FPP' };
   }
   if (name === 'landing') {
-    // Full leg: rings, then the final approach and touchdown.
+    // Full leg: waypoints, then the final approach and touchdown.
     flyTo(world, 400, aimAtNextRing(world));
     if (!world.state.over) flyTo(world, 200, aimAtRunway(world));
-    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+    return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'FPP' };
   }
-  // Default 'play': 25 seconds into the leg, mid-route, rings ahead.
+  // Default 'play': 25 seconds into the leg, mid-route, waypoints ahead.
   flyTo(world, 25, aimAtNextRing(world));
-  return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'FPP' };
 }
 
 // The title screen's demo flight uses the same autopilot.

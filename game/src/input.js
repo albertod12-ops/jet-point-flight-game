@@ -6,6 +6,7 @@ export const ACTION_PAUSE = 2;
 export const ACTION_RESTART = 4;
 export const ACTION_MUTE = 8;
 export const ACTION_ADVENTURE = 16;
+export const ACTION_VIEW = 32;
 
 export function createInput(canvas) {
   const keys = new Set();
@@ -25,6 +26,7 @@ export function createInput(canvas) {
     if (event.key.toLowerCase() === 'r') actions |= ACTION_RESTART;
     if (event.key.toLowerCase() === 'm') actions |= ACTION_MUTE;
     if (event.key.toLowerCase() === 'a') actions |= ACTION_ADVENTURE;
+    if (event.key.toLowerCase() === 'c' || event.key.toLowerCase() === 'v') actions |= ACTION_VIEW;
     const n = Number.parseInt(event.key, 10);
     if (n >= 1 && n <= 5) levelPick = n;
   }

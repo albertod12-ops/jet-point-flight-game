@@ -23,9 +23,10 @@ import {
   ACTION_MUTE,
   ACTION_PAUSE,
   ACTION_RESTART,
+  ACTION_VIEW,
   createInput,
 } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, VIEW_FPP, VIEW_TPP } from './render.js';
 import { createAudio } from './audio.js';
 import { attractStep, stageShot } from './shots.js';
 
@@ -62,9 +63,10 @@ function saveBest(value) {
 
 function runShot(name) {
   const scene = stageShot(name, world);
+  const view = scene.view ?? (name === 'tpp' ? VIEW_TPP : VIEW_FPP);
   let painted = 0;
   function paint() {
-    renderer.draw(world, scene.screen, scene.best);
+    renderer.draw(world, scene.screen, scene.best, view);
     painted += 1;
     if (painted < 2) requestAnimationFrame(paint);
     else window.__shotReady = true;
@@ -77,6 +79,7 @@ function runGame() {
   let screen = SCREEN_TITLE;
   let best = readBest();
   let currentLevel = 0;
+  let view = VIEW_FPP;
   let accumulator = 0;
   let last = performance.now();
 
@@ -116,6 +119,10 @@ function runGame() {
     if (actions & ACTION_MUTE) {
       audio.setMuted(!audio.isMuted());
       announce(audio.isMuted() ? 'Muted.' : 'Sound on.');
+    }
+    if (actions & ACTION_VIEW) {
+      view = view === VIEW_FPP ? VIEW_TPP : VIEW_FPP;
+      announce(view === VIEW_FPP ? 'Cockpit view.' : 'Chase view.');
     }
     if (pick >= 1 && pick <= 5) {
       setLevel(pick - 1);
@@ -170,7 +177,7 @@ function runGame() {
     } else {
       accumulator = 0;
     }
-    renderer.draw(world, screen, best);
+    renderer.draw(world, screen, best, view);
   }
 
   document.addEventListener('visibilitychange', () => {

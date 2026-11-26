@@ -34,7 +34,9 @@ export function createWorld(random, levelIndex) {
     for (let i = 0; i < WORLD.ringCount; i += 1) {
       const z = 700 + i * WORLD.routeSpacing;
       rings.push({
-        x: level.weave * Math.sin(i * 0.9 + routePhase),
+        // Many turns: 1.7 rad per ring ≈ 1.6 sine periods over the leg, so
+        // the route snakes left-right-left-right instead of one lazy bend.
+        x: level.weave * Math.sin(i * 1.7 + routePhase),
         y: 110 + 42 * Math.sin(i * 1.3 + routePhase * 0.5),
         z,
         passed: false,
@@ -58,6 +60,13 @@ export function createWorld(random, levelIndex) {
     }
   }
   const runwayA = { x: 0, z: 0 };
+  // Final approach is straight: pull the last two rings toward the
+  // centreline so the jet lines up with runway B instead of arriving
+  // sideways off a hard turn (real procedures do the same).
+  if (!adventure && rings.length >= 2) {
+    rings[rings.length - 2].x *= 0.5;
+    rings[rings.length - 1].x *= 0.25;
+  }
   const runwayB = adventure
     ? { x: 0, z: 0 }
     : { x: rings[rings.length - 1].x, z: WORLD.legLength };
@@ -156,14 +165,18 @@ export function createWorld(random, levelIndex) {
       }
     } else if (level.theme === 'mountain') {
       // A valley that follows the route centreline; peaks rise hard at the
-      // edges, so the rings always sit over flyable ground.
+      // edges, so the rings always sit over flyable ground. Wide enough
+      // (±140 m flat floor, gentle walls) that a jet banking through the
+      // route's turns stays clear of the rock.
       const dx = Math.abs(x - routeCenterX(z));
       h = 20 + hillNoise(z * 0.005 + x * 0.02) * 20;
-      h += Math.max(0, dx - 90) * 1.4;
-      h += Math.max(0, dx - 260) * 1.0;
+      h += Math.max(0, dx - 140) * 1.0;
+      h += Math.max(0, dx - 300) * 0.8;
     } else if (level.theme === 'desert') {
       h = 8 + hillNoise(z * 0.005 + x * 0.015) * 12;
-      h += Math.max(0, Math.abs(x) - 150) * 0.5; // canyon walls far out
+      // Canyon walls follow the route centreline (not absolute x), so a
+      // snaking route never flies its rings into a cliff face.
+      h += Math.max(0, Math.abs(x - routeCenterX(z)) - 150) * 0.5;
     } else if (adventure) {
       h = base;
       if (x < -800) h = 0; // sea to the west
@@ -350,11 +363,13 @@ export function createWorld(random, levelIndex) {
     }
 
     // --- fuel ---
-    const drain = adventure ? JET.fuelDrain * 0.7 : JET.fuelDrain;
+    // Adventure is free roam: a gentler drain so exploring lasts minutes,
+    // and its waypoints refuel properly (they are the only fuel source).
+    const drain = adventure ? JET.fuelDrain * 0.45 : JET.fuelDrain;
     state.fuel -= (drain + state.throttle * JET.fuelDrainThrottle) * dt;
     if (state.fuel < 20 && !state.lowFuelWarned) {
       state.lowFuelWarned = true;
-      say('LOW FUEL — thread rings to refuel!', 3);
+      say('LOW FUEL — thread waypoints for fuel!', 3);
       events |= EVENT_FUEL_LOW;
     }
     if (state.fuel <= 0) {
@@ -376,10 +391,10 @@ export function createWorld(random, levelIndex) {
         ring.quality = q;
         state.score += pts;
         state.ringsHit += 1;
-        state.fuel = Math.min(JET.startFuel, state.fuel + JET.ringFuel);
+        state.fuel = Math.min(JET.startFuel, state.fuel + (adventure ? JET.ringFuel * 4 : JET.ringFuel));
         state.lastRingScore = pts;
         state.lastRingT = 1.4;
-        say(q < 0.45 ? `PERFECT RING! +${pts}` : `Ring! +${pts}`, 1.4);
+        say(q < 0.45 ? `WAYPOINT! +${pts}` : `Waypoint +${pts}`, 1.4);
         events |= EVENT_RING;
       } else if (d <= WORLD.ringRadius + 16) {
         ring.near = true;
@@ -412,7 +427,7 @@ export function createWorld(random, levelIndex) {
       if (d < 26 && !state.onGround) {
         return crash(`Mid-air collision with a ${t.label}!`);
       }
-      if (d < 100 && !t.nearMissed && !state.onGround) {
+      if (d < 130 && !t.nearMissed && !state.onGround) {
         t.nearMissed = true;
         state.nearMisses += 1;
         state.score += SCORE.nearMiss;
@@ -421,7 +436,7 @@ export function createWorld(random, levelIndex) {
         say(`NEAR MISS +${SCORE.nearMiss} — that ${t.label} was close!`, 1.6);
         events |= EVENT_NEAR;
       }
-      if (d < 420 && !t.warned) {
+      if (d < 500 && !t.warned) {
         t.warned = true;
         say(`TRAFFIC — ${t.label} ahead!`, 2);
         events |= EVENT_WARN;
@@ -433,9 +448,9 @@ export function createWorld(random, levelIndex) {
     const bz = runwayB.z;
     const bx = runwayB.x;
     const onStrip = Math.abs(state.z - bz) < WORLD.runwayLength / 2;
-    if (onStrip && !state.landed && !state.onGround) {
+    if (onStrip && !state.landed && !state.onGround && !adventure) {
       const ground = terrainHeight(state.x, state.z);
-      if (Math.abs(state.x - bx) < WORLD.runwayHalfWidth + 6 && state.y - ground < 8 && state.speed < JET.landingMaxSpeed + 4 && state.speed > JET.landingMinSpeed) {
+      if (Math.abs(state.x - bx) < WORLD.runwayHalfWidth + 10 && state.y - ground < 8 && state.speed < JET.landingMaxSpeed + 4 && state.speed > JET.landingMinSpeed) {
         state.landed = true;
         state.won = true;
         state.over = true;
@@ -465,7 +480,7 @@ export function createWorld(random, levelIndex) {
     // Adventure: landing on the home strip ends the run (needs 3+ rings).
     if (adventure && onStrip && !state.landed && !state.onGround && state.ringsHit >= 3) {
       const ground = terrainHeight(state.x, state.z);
-      if (Math.abs(state.x - bx) < WORLD.runwayHalfWidth + 6 && state.y - ground < 8 && state.speed < JET.landingMaxSpeed + 4 && state.speed > JET.landingMinSpeed) {
+      if (Math.abs(state.x - bx) < WORLD.runwayHalfWidth + 10 && state.y - ground < 8 && state.speed < JET.landingMaxSpeed + 4 && state.speed > JET.landingMinSpeed) {
         state.landed = true;
         state.won = true;
         state.over = true;
