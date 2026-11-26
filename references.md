@@ -209,3 +209,57 @@ mountain ground lost its snow (ref 1: green forest to the top) and gained
 forest speckle; ridge faces carry a vertical crest-to-base gradient; fog
 blend over mountain ground 0.32 → 0.2; landing panel moved to the TOP of
 the frame (below the HUD bar) so the runway stays visible.
+
+---
+
+# v8 — user: "Untuk kokpit sudah ok, untuk map masih jelek dan 3d pesawat jet nya ancur parahhhh. Perbaiki sekarang" (19:47 WIB 26 Nov)
+
+User verdict on v7: cockpit FPP is OK (do NOT touch it); the MAP is still ugly;
+the JET's 3D is terribly broken. v7's jet was a FLAT paper cutout: fuselage a
+flat white tube, wing a flat white triangle, far wing a separate blade.
+
+## What was wrong, exactly (parent's diagnosis, verified against the v7 shots)
+
+- Fuselage: a flat polygon with a vertical linear gradient + a straight
+  white "spine highlight" stripe — it read as a white pen, not a round tube.
+- Far wing: a steep thin sliver, mostly hidden behind the fin — it read as a
+  separate blade, not a wing. Root cause: strict perspective from the low
+  chase angle foreshortens the far wing's chord to almost nothing.
+- Near wing: one flat polygon — no thickness, no underside; the underwing
+  stores sat ON the surface and read as dark spots.
+- Canopy: a flat black blob (fixed in v8: glass with sky reflection).
+- Map: ridges were triangle pairs (flat triangles); ground was mottled noise
+  (a mosaic of flat rectangles). Desert leg showed GREEN mountains (off-theme).
+
+## v8 fixes (`game/src/render.js` only — no world/flight-model change)
+
+- JET — volume, not outline: fuselage rebuilt as a CURVED profile (quadratic
+  top/bottom edges, belly bulge) with a 5-stop vertical gradient (bright
+  spine → dark belly) + a NARROW soft specular band (wide bands stripe) +
+  belly shadow + curved panel lines + ambient occlusion at wing/fin roots.
+- Canopy: glass — sky-reflection gradient (pale steel blue → deep blue-black),
+  horizon-reflection band, strong diagonal specular streak, two-seat split.
+- Far wing: SHALLOW (~30°) and BROAD with an EXAGGERATED chord (an
+  illustrator's three-quarter view, like ref 1 — strict perspective would
+  keep it a sliver); root tucked under the fuselage; chordwise shading;
+  wingtip rail + red nav light ON the tip. Far stabilator shrunk to a small
+  tip peeking under the tail.
+- Near wing: chordwise gradient (bright LE → dark TE) + a DARK UNDERSIDE
+  strip below the trailing edge (the thickness cue); stores now HANG below
+  the wing on pylons (shaded tanks), not spots on the surface.
+- Fin: chordwise gradient (bright LE → dark TE) + rounded tip + darker base
+  fillet. Nozzle: afterburner is now a tapered FLAME CONE (bright core →
+  orange → transparent), not a floating orange ball.
+- MAP — organic terrain: `drawRidge` rewritten as a multi-octave noise
+  POLYLINE with per-segment sun/lee shading + crest highlight + forest
+  speckle + rock patches (no more triangles). Ground cells 24 → 48 segments;
+  mountain theme rebuilt with STRUCTURE: valley-floor farmland rectangles,
+  dark forest slopes, rock crests, and a RIVER winding down the valley floor
+  (follows the route centreline); mountain fog is greenish and lighter
+  (blend 0.2 → 0.16). Ridge colours are theme-aware now (desert = brown/
+  orange, sea = slate, beach = warm green) — no more green mountains at dusk.
+- Cloud shadows strengthened (alpha 0.13 → 0.20, radius 1.3 → 1.5).
+- Camera: a more side-on chase angle (32/30) was tried and REVERTED — it
+  pushed the waypoint ring to the frame edge and the jet sprite is drawn in
+  fixed screen coordinates anyway, so the camera cannot fix the far wing;
+  only the drawing can. Camera stays 24/42 (v4).
