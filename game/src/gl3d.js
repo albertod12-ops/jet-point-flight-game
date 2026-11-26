@@ -340,7 +340,7 @@ export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1, em = 0, bot = nul
   // shade almost alike: smooth, no facet lines.
   const g = gd || [cy, r];
   const emit = (a, b, cc) => {
-    const col = bot ? mix3(bot, c, sstep(-0.6, 0.5, ((v[a][1] + v[b][1] + v[cc][1]) / 3 - g[0]) / g[1])) : c;
+    const col = bot ? mix3(bot, c, sstep(-1.3, 1.1, ((v[a][1] + v[b][1] + v[cc][1]) / 3 - g[0]) / g[1])) : c;
     tri(mesh, v[a][0], v[a][1], v[a][2], v[b][0], v[b][1], v[b][2], v[cc][0], v[cc][1], v[cc][2], col, alpha, em);
   };
   // sub: split each face into 4 at the sphere midpoints — 80 small faces
@@ -1076,7 +1076,7 @@ export function buildProps(world) {
 }
 
 // Puff table [dx, dy, dz, scale, shade]: six overlapping puffs.
-const PUFFS = [[0, 0, 0, 1, 0], [0.7, -0.18, 0.2, 0.6, -14], [-0.65, -0.12, -0.25, 0.55, -26], [0.25, 0.3, -0.05, 0.45, 6], [-0.3, 0.24, 0.18, 0.38, 2], [0.05, -0.3, 0.05, 0.7, -36], [1.05, -0.05, 0.3, 0.42, -20], [-1.0, 0.05, -0.2, 0.45, -18], [0.15, 0.42, 0.1, 0.4, 10]];
+const PUFFS = [[0, 0, 0, 1, 0], [0.7, -0.18, 0.2, 0.6, -7], [-0.65, -0.12, -0.25, 0.55, -13], [0.25, 0.3, -0.05, 0.45, 3], [-0.3, 0.24, 0.18, 0.38, 1], [0.05, -0.3, 0.05, 0.7, -18], [1.05, -0.05, 0.3, 0.42, -10], [-1.0, 0.05, -0.2, 0.45, -9], [0.15, 0.42, 0.1, 0.4, 5]];
 // Cloud style (v18): user picked ref 3 MSFS deck for every level —
 // [w, h, sz, top, bot]: wide flat layered deck, blue-grey base.
 const CSTY = [[2.4, 0.42, 2.2, [240, 244, 250], [134, 150, 188]]];

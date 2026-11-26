@@ -261,21 +261,25 @@ export function createWorld(random, levelIndex) {
   for (let i = 0; i < 26; i += 1) {
     const p = legToMap(random.range(-700, 700), random.range(200, WORLD.legLength + 900));
     const cp = offRoute(p.x, p.z);
-    clouds.push({ x: cp[0], y: random.range(240, 380), z: cp[1], s: random.range(22, 55) });
+    clouds.push({ x: cp[0], y: random.range(240, 380), z: cp[1], s: random.range(22, 35) });
   }
   // v18: more clouds (user picked shot 2 MSFS deck, wants a fuller sky).
   // Extra clouds use their own seeded RNG — the shared stream feeds
   // traffic next, and shifting it breaks the flight test (v15 lesson).
+  // v19: per-shot placement. TPP (L4) stages at ring 5 (v 3820) with the
+  // jet at ~190 m, so its 22 extras sit ahead of the jet (v 2900-5200)
+  // at eye level (y 160-270) instead of above the camera's view band.
   const cr = createRandom(9100 + level.id * 7919);
+  const tpp = level.id === 4;
   for (let i = 0; i < 22; i += 1) {
-    const p = legToMap(cr.range(-850, 850), cr.range(200, WORLD.legLength + 900));
+    const p = legToMap(cr.range(-850, 850), cr.range(tpp ? 2900 : 200, tpp ? 5200 : WORLD.legLength + 900));
     const cp = offRoute(p.x, p.z);
-    clouds.push({ x: cp[0], y: cr.range(240, 380), z: cp[1], s: cr.range(22, 55) });
+    clouds.push({ x: cp[0], y: cr.range(tpp ? 160 : 240, tpp ? 270 : 380), z: cp[1], s: cr.range(22, 35) });
   }
   // Two fixed clouds over the destination airport: the landing shot's
   // camera sits inside the cleared corridor, so without these the final
   // approach sky is empty. (Fixed offsets: no random draws.)
-  for (const [ox, oz, oy, os] of [[450, -350, 330, 40], [900, 420, 360, 34], [-550, 250, 340, 38], [1200, -150, 350, 32]]) {
+  for (const [ox, oz, oy, os] of [[450, -350, 330, 35], [900, 420, 360, 34], [-550, 250, 340, 35], [1200, -150, 350, 32]]) {
     const cp = offRoute(runwayB.x + ox, runwayB.z + oz);
     clouds.push({ x: cp[0], y: oy, z: cp[1], s: os });
   }
@@ -284,12 +288,13 @@ export function createWorld(random, levelIndex) {
     for (let i = 0; i < 18; i += 1) {
       const p = legToMap(random.range(-600, 600), random.range(300, WORLD.legLength + 600));
       const cp = offRoute(p.x, p.z);
-      stormClouds.push({ x: cp[0], y: random.range(150, 260), z: cp[1], s: random.range(40, 90) });
+      stormClouds.push({ x: cp[0], y: random.range(150, 260), z: cp[1], s: random.range(40, 70) });
     }
-    for (let i = 0; i < 14; i += 1) {
+    // v19: storm was a wall in v18 — 14 extra -> 6, s capped 40-70.
+    for (let i = 0; i < 6; i += 1) {
       const p = legToMap(cr.range(-750, 750), cr.range(300, WORLD.legLength + 600));
       const cp = offRoute(p.x, p.z);
-      stormClouds.push({ x: cp[0], y: cr.range(150, 260), z: cp[1], s: cr.range(40, 90) });
+      stormClouds.push({ x: cp[0], y: cr.range(150, 260), z: cp[1], s: cr.range(40, 70) });
     }
   }
 
