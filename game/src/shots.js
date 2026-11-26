@@ -90,6 +90,8 @@ export function stageShot(name, world) {
     // next ring sits near the centre of the frame (300–900 m out, within
     // ~15° of the heading), capped at 40 s, so the ring + label read
     // dead ahead instead of off to one side (v5's ring sat right-of-centre).
+    // v7: bank < 0.10 — the hero jet is LEVEL in the frame (ref 1), so the
+    // frame must be nearly level too (the world tilt carries the turn).
     const aim = aimAtNextRing(world);
     const limit = Math.floor(40 / SAMPLE);
     for (let i = 0; i < limit; i += 1) {
@@ -101,7 +103,7 @@ export function stageShot(name, world) {
         let dh = Math.atan2(next.x - s.x, next.z - s.z) - s.heading;
         while (dh > Math.PI) dh -= Math.PI * 2;
         while (dh < -Math.PI) dh += Math.PI * 2;
-        if (d < 900 && d > 300 && Math.abs(dh) < 0.26 && Math.abs(s.bank) < 0.25) break;
+        if (d < 900 && d > 300 && Math.abs(dh) < 0.26 && Math.abs(s.bank) < 0.10) break;
       }
       const a = aim(s);
       const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);

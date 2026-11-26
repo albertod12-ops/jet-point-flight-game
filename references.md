@@ -171,3 +171,41 @@ forested mountains, white clouds, blue sky.
   strake ahead of the wing root) and a pitot tube on the nose tip.
 - Length/span ratio 1.39: v6 fuselage 420 px vs projected span ~320 px —
   matches.
+
+## v7 — Sketchfab KAI FA-50 Golden Eagle hero render (user's link, 26 Nov 2026)
+
+User sent https://sketchfab.com/tags/fighter-jet (19:24 WIB) and rejected v6:
+"Masih jelek, ikuti lagi link referensi yang ku kirim tadi". The hero render
+studied was the KAI FA-50 Golden Eagle 3D model by NETRUNNER_pl (10.2k views,
+animated, low-poly, rigged) — local copy
+`~/workspace/makefun/jet-v7-refs/fa50-sketchfab-hero-1920.jpg`.
+
+What the hero render taught (SHAPE only — NOT its black/white display paint;
+our jet stays PLAIN GREY like the user's photos):
+- Wing planform: BROAD swept wings, ~40° leading-edge sweep, BLUNT tips
+  with wingtip rails — never a needle point. Root chord is ~1/3 of the
+  fuselage length; the top surface is clearly visible from above-behind
+  and carries a spanwise light-to-dark gradient.
+- LERX: a prominent smooth strake running from the wing-root leading edge
+  forward along the fuselage to the canopy — not a stub.
+- Long bubble canopy, low profile, glossy dark with a bright specular
+  streak along the top; two-seat split line.
+- ONE tall swept fin (leading edge swept ~35–40°, broad base), single
+  exhaust nozzle at the tail centre (FA-50 = one F404 engine).
+- Stabilators: small, mostly edge-on from the chase angle — never a second
+  big wing.
+- The chase camera rolls WITH the aircraft: in the hero render and in
+  REF 1 (FA-50s in formation, LEVEL flight) the fuselage axis is always
+  HORIZONTAL in the frame. A banked jet in the frame reads as a mistake,
+  not as motion — the turn is carried by the world's tilt, never by the jet.
+
+Applied in v7 (`game/src/render.js`): jet rotation removed entirely (level
+in frame, always); near wing redrawn broad with a blunt tip chord + spanwise
+shading + trailing-edge band; far wing broadened the same way; LERX
+lengthened to the canopy; fin leading edge swept ~21°; near stabilator
+shrunk and tucked at the tail; HUD centre marker hidden in TPP view (it sat
+on the canopy); traffic occluded by the hero jet skipped (plane + label);
+mountain ground lost its snow (ref 1: green forest to the top) and gained
+forest speckle; ridge faces carry a vertical crest-to-base gradient; fog
+blend over mountain ground 0.32 → 0.2; landing panel moved to the TOP of
+the frame (below the HUD bar) so the runway stays visible.

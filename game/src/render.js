@@ -1,4 +1,4 @@
-// Canvas 2D renderer v6: FIRST-PERSON glass cockpit (737-style) + TPP chase
+// Canvas 2D renderer v7: FIRST-PERSON glass cockpit (737-style) + TPP chase
 // view. The pilot sits inside the jet: a layered flight deck below —
 // glareshield with MCP, six glass screens (PFD / ND / EICAS / standby),
 // centre pedestal with throttle quadrant and CDU, yokes — and the route,
@@ -6,8 +6,9 @@
 // view with the jet rebuilt from scratch as the user's own FA-50 photos:
 // flat horizontal three-quarter side view, plain grey, SHORT fuselage,
 // WIDE wings, BIG tandem bubble canopy, ONE tall swept fin, side intakes,
-// twin nozzles, underwing stores (FA-50 ref 1 proportions). The terrain
-// is textured from aerial-photo
+// single nozzle, underwing stores (FA-50 ref 1 proportions, Sketchfab
+// KAI FA-50 Golden Eagle hero render for the wing planform + LERX). The
+// terrain is textured from aerial-photo
 // references: mottled ground, slope-shaded mountains with snow caps, a
 // wobbling coastline, sun glitter on water, cloud shadows. HUD carries
 // altitude / speed / heading. Waypoints are thin blue/white rings on a route
@@ -71,6 +72,12 @@ function mottle(wx, wz) {
 // Multiply an [r,g,b] colour by a scalar, in place-safe style.
 function shadeC(c, f) {
   return [c[0] * f, c[1] * f, c[2] * f];
+}
+// Darken an rgba() colour string by a factor (ridge face shading, v7).
+function darkRgba(rgba, f) {
+  const m = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(rgba);
+  if (!m) return rgba;
+  return `rgba(${Math.round(m[1] * f)},${Math.round(m[2] * f)},${Math.round(m[3] * f)},${m[4]})`;
 }
 
 export function createRenderer(canvas) {
@@ -191,16 +198,26 @@ export function createRenderer(canvas) {
       guard += 1;
     }
     for (const p of peaks) {
-      // Two faces: the sun side is lit, the lee side is shadow.
+      // Two faces: the sun side is lit, the lee side is shadow. Each face
+      // carries a vertical gradient — bright crest, darker base — so the
+      // ridge reads as a forested slope, not a flat triangle (v7).
       const litFirst = sunLeft;
-      ctx.fillStyle = litFirst ? litColor : color;
+      const faceA = litFirst ? litColor : color;
+      const faceB = litFirst ? color : litColor;
+      const gA = ctx.createLinearGradient(0, p.y, 0, base);
+      gA.addColorStop(0, faceA);
+      gA.addColorStop(1, darkRgba(faceA, 0.62));
+      ctx.fillStyle = gA;
       ctx.beginPath();
       ctx.moveTo(p.x - p.w, base);
       ctx.lineTo(p.x, p.y);
       ctx.lineTo(p.x + p.w * 0.25, base);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = litFirst ? color : litColor;
+      const gB = ctx.createLinearGradient(0, p.y, 0, base);
+      gB.addColorStop(0, faceB);
+      gB.addColorStop(1, darkRgba(faceB, 0.62));
+      ctx.fillStyle = gB;
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
       ctx.lineTo(p.x + p.w, base);
@@ -293,10 +310,11 @@ export function createRenderer(canvas) {
       }
     }
     // Fog blend: the far ground melts into the horizon instead of striping.
-    // v6: 0.5 washed the whole TPP frame out — 0.32 keeps the haze but
-    // lets the jet and the near ground read.
+    // v7: mountain 0.2 — the Alpine ground is green forest (ref 1), and
+    // the 0.32 wash turned it into a grey fog bank in the TPP shot.
+    const blendA = level.theme === 'mountain' ? 0.2 : 0.32;
     const blend = ctx.createLinearGradient(0, horizonY, 0, horizonY + 220);
-    blend.addColorStop(0, 'rgba(207,227,242,0.32)');
+    blend.addColorStop(0, `rgba(207,227,242,${blendA})`);
     blend.addColorStop(1, 'rgba(207,227,242,0)');
     ctx.fillStyle = blend;
     ctx.fillRect(0, horizonY, W, 220);
@@ -370,10 +388,15 @@ export function createRenderer(canvas) {
       const slope = (world.terrainHeight(wx + 12, wz) - world.terrainHeight(wx - 12, wz)) / 24;
       const sunSign = level.sun[0] > 0.5 ? 1 : -1;
       const light = 0.8 + 0.38 * clamp(slope * sunSign, -1, 1);
-      const snowLine = h + 22 * mot;
-      if (snowLine > 112) c = shadeC([232, 238, 246], light * (1 + fine * 0.03)); // snow: white, blue in shadow
-      else if (hash2(Math.floor(wx / 26), Math.floor(wz / 26)) > 0.93) c = shadeC([96, 90, 82], light); // rock outcrop (rare, light — v6: 0.86 made a dark quilt)
-      else c = shadeC(snowLine > 60 ? [104, 116, 96] : [82, 120, 70], light * (1 + mot * 0.08));
+      // v7: NO snow — ref 1's mountains are green forest to the top.
+      // High ground is dark forest, not white (v6's white patches read as
+      // fog/snow in the TPP shot).
+      const high = h + 22 * mot;
+      if (hash2(Math.floor(wx / 26), Math.floor(wz / 26)) > 0.93) c = shadeC([96, 90, 82], light); // rock outcrop (rare, light)
+      else if (high > 112) c = shadeC([52, 84, 52], light * (1 + mot * 0.1 + fine * 0.04)); // high forest: dark green
+      else c = shadeC(high > 60 ? [104, 116, 96] : [82, 120, 70], light * (1 + mot * 0.14 + fine * 0.05));
+      // Forest speckle: darker tree clumps break the flat wash (v7).
+      if (hash2(Math.floor(wx / 18), Math.floor(wz / 18)) > 0.8) c = shadeC(c, 0.86);
     } else if (level.theme === 'desert') {
       const dune = Math.sin((wx * 0.5 + wz * 0.8) * 0.028 + mot * 1.8);
       const rocky = hash2(Math.floor(wx / 34), Math.floor(wz / 34)) > 0.88;
@@ -741,6 +764,10 @@ export function createRenderer(canvas) {
       if (d < 15 || d > 2400) continue;
       const p = project(t.x, t.y, t.z, state);
       if (!p) continue;
+      // v7: in chase view a traffic plane projecting onto the hero jet is
+      // occluded — skip the plane AND its label (v6 shot 2: a "PROP
+      // PLANE" label sat on the canopy).
+      if (state.tpp && p.x > 400 && p.x < 940 && p.y > 260 && p.y < 620) continue;
       const s = p.s * t.size;
       // v6: slimmer jet silhouette — v5's fat oval fuselage read as a
       // white whale at distance. Longer, thinner, grey like a real jet.
@@ -1361,7 +1388,7 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawHud(world, best) {
+  function drawHud(world, best, view = VIEW_FPP) {
     const s = world.state;
     const next = world.nextRing();
     ctx.textBaseline = 'alphabetic';
@@ -1432,18 +1459,22 @@ export function createRenderer(canvas) {
       ctx.fillText('ALL WAYPOINTS DONE — LAND ON RUNWAY B', CX, 108);
       ctx.textAlign = 'left';
     }
-    // Centre flight-path marker.
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(CX, 400, 10, 0, Math.PI * 2);
-    ctx.moveTo(CX - 18, 400);
-    ctx.lineTo(CX - 10, 400);
-    ctx.moveTo(CX + 10, 400);
-    ctx.lineTo(CX + 18, 400);
-    ctx.moveTo(CX, 382);
-    ctx.lineTo(CX, 390);
-    ctx.stroke();
+    // Centre flight-path marker — FPP only. In chase view the hero jet
+    // itself is the flight-path reference; the marker sat on the canopy
+    // in v7's first TPP render.
+    if (view !== VIEW_TPP) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(CX, 400, 10, 0, Math.PI * 2);
+      ctx.moveTo(CX - 18, 400);
+      ctx.lineTo(CX - 10, 400);
+      ctx.moveTo(CX + 10, 400);
+      ctx.lineTo(CX + 18, 400);
+      ctx.moveTo(CX, 382);
+      ctx.lineTo(CX, 390);
+      ctx.stroke();
+    }
     // Waypoint / near-miss popup.
     if (s.lastRingT > 0) {
       ctx.save();
@@ -1479,20 +1510,22 @@ export function createRenderer(canvas) {
   // nozzles, underwing stores. Screen-space drawing: the jet is the hero,
   // the projected world behind it is the sky and the ground.
   function drawJetTPP(world, state) {
-    // v6: model jet ditulis ulang LAGI dari foto FA-50 user (ref 1, UTAMA).
-    // Proporsi ref 1: fuselage TIDAK terlalu panjang, sayap LEBAR, canopy
-    // BESAR, fin TEGAK. v5 gagal di sini: fuselage 567 px (terlalu panjang,
-    // seperti dart), sayap tipis diagonal, canopy kecil. v6: fuselage 420 px
-    // (hidung 890, ekor 470), sayap dekat LEBAR (chord akar ~75 px),
-    // canopy bubble BESAR 160 px, fin tegak 136 px. Terbang DATAR
-    // HORIZONTAL three-quarter samping, hidung ke kanan, ABU-ABU POLOS.
+    // v7: model jet ditulis ulang LAGI dari foto FA-50 user (ref 1, UTAMA)
+    // + hero render Sketchfab KAI FA-50 Golden Eagle (NETRUNNER_pl).
+    // Proporsi ref 1: fuselage 420 px (hidung 890, ekor 470), sayap dekat
+    // LEBAR dengan ujung TUMPUL (bukan lancip seperti v6), canopy bubble
+    // BESAR 160 px, fin tegak 136 px, nozzle TUNGGAL. Terbang DATAR
+    // HORIZONTAL three-quarter samping, hidung ke kanan, ABU-ABU POLOS —
+    // jet TIDAK PERNAH miring di frame (bank hidup di kemiringan dunia,
+    // bukan di jet). Wing planform + LERX dari hero render Sketchfab.
     const s = state;
-    const CXJ = 650; // jet centre x (rotation pivot)
-    const Y0 = 445; // fuselage axis y
+    // v7: the hero jet is ALWAYS LEVEL in the frame — fuselage axis
+    // horizontal, nose right, exactly like REF 1 (FA-50s in formation).
+    // The chase camera rolls WITH the aircraft, so the bank lives in the
+    // world's tilt (cam.bank), never in the jet. v6 rotated the jet by
+    // bank*0.9, so every turning frame drew it diagonal — the user's #1
+    // complaint. No rotation here, ever.
     ctx.save();
-    ctx.translate(CXJ, Y0);
-    ctx.rotate(s.bank * 0.9);
-    ctx.translate(-CXJ, -Y0);
     // Shadow cue on the ground rushing below: a soft dark shape at the
     // bottom of the frame, smaller and fainter the higher the jet flies.
     if (!s.onGround) {
@@ -1507,7 +1540,7 @@ export function createRenderer(canvas) {
     }
     // Contrails: stream behind the wingtips (to the left, toward the tail).
     if (!s.onGround && s.speed > 60) {
-      for (const [tx, ty] of [[798, 576], [475, 322]]) {
+      for (const [tx, ty] of [[798, 576], [492, 318]]) {
         for (let i = 0; i < 2; i += 1) {
           ctx.strokeStyle = `rgba(255,255,255,${0.3 - i * 0.13})`;
           ctx.lineWidth = i === 0 ? 3 : 8;
@@ -1518,23 +1551,39 @@ export function createRenderer(canvas) {
         }
       }
     }
-    // Far (port) wing — behind the fuselage, darker (far side, shadowed).
-    // Broad swept surface sweeping up-left; only the tip and leading edge
-    // show above the fuselage line.
-    ctx.fillStyle = '#8b959e';
+    // Far (port) wing — behind the fuselage, seen from above, sunlit top.
+    // v7: BROAD swept surface with a BLUNT tip (Sketchfab hero + ref 1) —
+    // v6's sliver read as a needle. Leading edge sweeps up-left from the
+    // root, tip chord ~30 px, trailing edge back to the fuselage.
+    const fw = ctx.createLinearGradient(478, 310, 668, 420);
+    fw.addColorStop(0, '#c3c9cf');
+    fw.addColorStop(1, '#878f99');
+    ctx.fillStyle = fw;
     ctx.beginPath();
-    ctx.moveTo(605, 418);
-    ctx.lineTo(475, 322);
-    ctx.lineTo(505, 332);
-    ctx.lineTo(665, 420);
+    ctx.moveTo(628, 412);
+    ctx.lineTo(478, 310);
+    ctx.lineTo(508, 330);
+    ctx.lineTo(668, 418);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.strokeStyle = 'rgba(40,50,62,0.45)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(605, 418);
-    ctx.lineTo(475, 322);
+    ctx.moveTo(628, 412);
+    ctx.lineTo(478, 310);
     ctx.stroke();
+    // Far wingtip rail (small dark bar at the blunt tip).
+    ctx.fillStyle = '#6d7680';
+    ctx.beginPath();
+    ctx.moveTo(478, 310);
+    ctx.lineTo(492, 302);
+    ctx.lineTo(508, 330);
+    ctx.lineTo(496, 336);
+    ctx.closePath();
+    ctx.fill();
     // Far horizontal stabilator (darker, behind the fuselage).
     ctx.fillStyle = '#8b959e';
     ctx.beginPath();
@@ -1597,20 +1646,33 @@ export function createRenderer(canvas) {
     ctx.lineTo(906, 445);
     ctx.stroke();
     // LERX: leading-edge root extension — the wing's leading edge runs
-    // forward along the fuselage as a thin strake (FA-50/F-16, ref 1).
-    ctx.fillStyle = 'rgba(160,170,180,0.9)';
+    // forward along the fuselage as a long strake (FA-50/F-16, Sketchfab
+    // hero: a prominent smooth fairing from the wing root to the canopy).
+    // v7: longer and more visible than v6's stub.
+    const lx = ctx.createLinearGradient(636, 454, 772, 428);
+    lx.addColorStop(0, '#aeb6bf');
+    lx.addColorStop(1, '#c9cfd6');
+    ctx.fillStyle = lx;
     ctx.beginPath();
-    ctx.moveTo(628, 452);
-    ctx.lineTo(712, 430);
-    ctx.lineTo(700, 442);
+    ctx.moveTo(636, 454);
+    ctx.lineTo(772, 428);
+    ctx.lineTo(712, 452);
     ctx.closePath();
     ctx.fill();
-    // Spine highlight + belly shadow + panel lines.
+    // Spine highlight + soft spine glow + belly shadow + panel lines.
     ctx.strokeStyle = 'rgba(255,255,255,0.8)';
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(500, 418);
     ctx.lineTo(850, 428);
+    ctx.stroke();
+    // Soft sheen under the crest line (v7): the top-light cue that sells
+    // the fuselage as a round tube, not a flat bar.
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(520, 421);
+    ctx.lineTo(840, 431);
     ctx.stroke();
     ctx.strokeStyle = 'rgba(20,28,38,0.35)';
     ctx.lineWidth = 3;
@@ -1656,16 +1718,17 @@ export function createRenderer(canvas) {
     ctx.stroke();
     // ONE vertical tail fin: TALL and swept, rising from the rear
     // fuselage — PLAIN GREY with a bright leading edge and a small dark
-    // tail marking (FA-50 ref 1). A single fin, not two.
-    const fin = ctx.createLinearGradient(530, 278, 594, 414);
+    // tail marking (FA-50 ref 1). A single fin, not two. v7: leading edge
+    // swept ~21° (v6's near-vertical edges read as a rectangular slab).
+    const fin = ctx.createLinearGradient(528, 282, 606, 414);
     fin.addColorStop(0, '#c9cfd6');
     fin.addColorStop(1, '#8d97a1');
     ctx.fillStyle = fin;
     ctx.beginPath();
-    ctx.moveTo(530, 414);
-    ctx.lineTo(556, 280);
-    ctx.lineTo(574, 280);
-    ctx.lineTo(594, 414);
+    ctx.moveTo(528, 414);
+    ctx.lineTo(578, 282);
+    ctx.lineTo(594, 282);
+    ctx.lineTo(606, 414);
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = 'rgba(40,50,62,0.55)';
@@ -1674,73 +1737,95 @@ export function createRenderer(canvas) {
     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(530, 414);
-    ctx.lineTo(556, 280);
+    ctx.moveTo(528, 414);
+    ctx.lineTo(578, 282);
     ctx.stroke();
     ctx.fillStyle = '#2c343e';
-    ctx.fillRect(552, 296, 14, 5);
+    ctx.fillRect(574, 298, 14, 5);
     // Near (starboard) wing — toward the viewer, BROAD and sweeping
-    // down-right (ref 1: sayap lebar). Wide root chord, top surface
-    // sunlit. Light grey, bright leading edge, dark trailing edge.
-    const nw = ctx.createLinearGradient(628, 458, 798, 590);
-    nw.addColorStop(0, '#d5dade');
-    nw.addColorStop(1, '#98a2ac');
+    // down-right (Sketchfab hero + ref 1: sayap lebar, blunt tip).
+    // v7: root chord ~80 px, BLUNT tip chord ~30 px (v6 tapered to a
+    // needle point), spanwise shading + a trailing-edge band so the top
+    // surface reads as a 3D surface, not a flat blade.
+    const nw = ctx.createLinearGradient(640, 446, 786, 592);
+    nw.addColorStop(0, '#dde2e6');
+    nw.addColorStop(0.55, '#b7bfc7');
+    nw.addColorStop(1, '#8f99a3');
     ctx.fillStyle = nw;
     ctx.beginPath();
-    ctx.moveTo(628, 458);
-    ctx.lineTo(798, 576);
-    ctx.lineTo(770, 590);
-    ctx.lineTo(698, 490);
+    ctx.moveTo(640, 446); // leading-edge root
+    ctx.lineTo(806, 566); // leading-edge tip
+    ctx.lineTo(786, 592); // blunt tip, trailing edge
+    ctx.lineTo(612, 522); // trailing-edge root
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = 'rgba(40,50,62,0.55)';
     ctx.lineWidth = 2;
     ctx.stroke();
+    // Trailing-edge band: darker strip along the trailing edge (depth cue).
+    ctx.fillStyle = 'rgba(70,80,92,0.35)';
+    ctx.beginPath();
+    ctx.moveTo(612, 522);
+    ctx.lineTo(786, 592);
+    ctx.lineTo(776, 600);
+    ctx.lineTo(606, 530);
+    ctx.closePath();
+    ctx.fill();
+    // Spanwise panel line, subtle.
+    ctx.strokeStyle = 'rgba(60,70,82,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(628, 484);
+    ctx.lineTo(796, 579);
+    ctx.stroke();
     ctx.strokeStyle = 'rgba(255,255,255,0.85)';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(628, 458);
-    ctx.lineTo(798, 576);
+    ctx.moveTo(640, 446);
+    ctx.lineTo(806, 566);
     ctx.stroke();
     ctx.strokeStyle = 'rgba(30,38,48,0.5)';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(698, 490);
-    ctx.lineTo(770, 590);
+    ctx.moveTo(612, 522);
+    ctx.lineTo(786, 592);
     ctx.stroke();
-    // Wingtip rail + a small missile on the near tip (ref 1).
+    // Wingtip rail + a small missile on the blunt near tip (ref 1).
     ctx.fillStyle = '#9aa4ad';
     ctx.beginPath();
-    ctx.moveTo(792, 572);
-    ctx.lineTo(816, 584);
-    ctx.lineTo(812, 592);
-    ctx.lineTo(788, 580);
+    ctx.moveTo(800, 562);
+    ctx.lineTo(826, 572);
+    ctx.lineTo(822, 582);
+    ctx.lineTo(796, 572);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = '#c8cfd6';
     ctx.beginPath();
-    ctx.moveTo(812, 584);
-    ctx.lineTo(836, 592);
-    ctx.lineTo(812, 596);
+    ctx.moveTo(822, 574);
+    ctx.lineTo(846, 582);
+    ctx.lineTo(822, 586);
     ctx.closePath();
     ctx.fill();
-    // Near horizontal stabilator (light grey, toward the viewer).
-    const sg = ctx.createLinearGradient(505, 468, 585, 552);
-    sg.addColorStop(0, '#d5dbe0');
-    sg.addColorStop(1, '#7d8894');
+    // Near horizontal stabilator (light grey, toward the viewer). v7:
+    // SMALL and tucked at the tail — v6's big quad read as a second wing
+    // pointing down-right next to the real wing (ref 1: stabilators are
+    // small and mostly edge-on from this angle).
+    const sg = ctx.createLinearGradient(505, 466, 548, 520);
+    sg.addColorStop(0, '#c3c9cf');
+    sg.addColorStop(1, '#6d7680');
     ctx.fillStyle = sg;
     ctx.beginPath();
-    ctx.moveTo(505, 468);
-    ctx.lineTo(585, 540);
-    ctx.lineTo(565, 552);
-    ctx.lineTo(530, 478);
+    ctx.moveTo(505, 466);
+    ctx.lineTo(548, 510);
+    ctx.lineTo(536, 520);
+    ctx.lineTo(520, 474);
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = 'rgba(30,38,48,0.5)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(530, 478);
-    ctx.lineTo(565, 552);
+    ctx.moveTo(520, 474);
+    ctx.lineTo(536, 520);
     ctx.stroke();
     // Underwing stores: two small pylons with drop tanks under the near
     // wing (ref 2: stores under the wings).
@@ -1799,7 +1884,7 @@ export function createRenderer(canvas) {
     // (starboard) tip, white strobe at the tail.
     ctx.fillStyle = '#ff3b30';
     ctx.beginPath();
-    ctx.arc(475, 322, 4.5, 0, Math.PI * 2);
+    ctx.arc(493, 320, 4.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#34e07a';
     ctx.beginPath();
@@ -1906,40 +1991,41 @@ export function createRenderer(canvas) {
 
   function drawOver(world, best) {
     const s = world.state;
-    // v6: lighter veil + narrower panel, so the runway just landed on
-    // stays visible around the panel (v5's shot was mostly a text panel).
-    ctx.fillStyle = 'rgba(8,18,32,0.28)';
+    // v7: panel at the TOP, veil light — the runway just landed on lives
+    // in the LOWER half (refs 3–4, 7), and v5/v6's centre panel hid it
+    // (shot 4 was mostly a text panel). Panel starts BELOW the HUD top
+    // bar (y 88), so the heading/fuel readouts stay visible.
+    ctx.fillStyle = 'rgba(8,18,32,0.15)';
     ctx.fillRect(0, 0, W, H);
-    panel(400, 118, 480, 300);
+    panel(310, 88, 660, 220);
     ctx.textAlign = 'center';
     if (s.won) {
       ctx.fillStyle = '#7be495';
-      ctx.font = 'bold 40px sans-serif';
-      ctx.fillText('LANDED — MISSION COMPLETE', CX, 178);
-      ctx.fillStyle = '#fff';
-      ctx.font = '19px sans-serif';
-      ctx.fillText(`You landed the jet on runway B — ${world.level.name}.`, CX, 208);
-    } else {
-      ctx.fillStyle = '#ff6b5e';
-      ctx.font = 'bold 40px sans-serif';
-      ctx.fillText('CRASHED', CX, 178);
+      ctx.font = 'bold 33px sans-serif';
+      ctx.fillText('LANDED — MISSION COMPLETE', CX, 140);
       ctx.fillStyle = '#fff';
       ctx.font = '18px sans-serif';
-      ctx.fillText(s.crashReason, CX, 208);
+      ctx.fillText(`You landed the jet on runway B — ${world.level.name}.`, CX, 170);
+    } else {
+      ctx.fillStyle = '#ff6b5e';
+      ctx.font = 'bold 33px sans-serif';
+      ctx.fillText('CRASHED', CX, 140);
+      ctx.fillStyle = '#fff';
+      ctx.font = '18px sans-serif';
+      ctx.fillText(s.crashReason, CX, 170);
     }
     ctx.fillStyle = '#ffd23e';
-    ctx.font = 'bold 28px sans-serif';
-    ctx.fillText(`SCORE ${s.score}`, CX, 258);
+    ctx.font = 'bold 27px sans-serif';
+    ctx.fillText(`SCORE ${s.score}`, CX, 210);
     ctx.fillStyle = '#fff';
     ctx.font = '18px sans-serif';
-    ctx.fillText(`Waypoints ${s.ringsHit}/${world.rings.length}    Near misses ${s.nearMisses}    Time ${fmt(s.time, 1)} s    Fuel ${Math.round(s.fuel)}%`, CX, 288);
+    ctx.fillText(`Waypoints ${s.ringsHit}/${world.rings.length}    Near misses ${s.nearMisses}    Time ${fmt(s.time, 1)} s    Fuel ${Math.round(s.fuel)}%`, CX, 238);
     ctx.fillStyle = '#bcd9f2';
     ctx.font = '17px sans-serif';
-    ctx.fillText(`Best ${Math.max(best, s.score)}`, CX, 314);
+    ctx.fillText(`Best ${Math.max(best, s.score)}`, CX, 262);
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 19px sans-serif';
-    ctx.fillText('SPACE / CLICK — fly again', CX, 356);
-    ctx.fillText('R — restart    1–5 / A — pick another leg', CX, 384);
+    ctx.font = 'bold 17px sans-serif';
+    ctx.fillText('SPACE — fly again  ·  R — restart  ·  1–5 / A — another leg', CX, 294);
     ctx.textAlign = 'left';
   }
 
@@ -1967,6 +2053,7 @@ export function createRenderer(canvas) {
         pitch: s.pitch - 0.06,
         bank: s.bank * 0.35,
         time: s.time,
+        tpp: true, // chase view: traffic occluded by the hero jet is skipped
       };
       drawSky(world, cam);
       drawGround(world, cam);
@@ -1978,7 +2065,7 @@ export function createRenderer(canvas) {
       if (world.level.storm) drawRain(s);
       drawLightning(s);
       drawJetTPP(world, s);
-      drawHud(world, best);
+      drawHud(world, best, VIEW_TPP);
       ctx.fillStyle = 'rgba(8,18,32,0.55)';
       ctx.fillRect(CX - 150, H - 34, 300, 24);
       ctx.fillStyle = '#bcd9f2';
@@ -1997,7 +2084,7 @@ export function createRenderer(canvas) {
       if (world.level.storm) drawRain(s);
       drawLightning(s);
       drawCockpit(world, s);
-      drawHud(world, best);
+      drawHud(world, best, VIEW_FPP);
     }
     if (screen === SCREEN_PAUSED) drawPaused();
     if (screen === SCREEN_OVER) drawOver(world, best);
