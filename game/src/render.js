@@ -1,12 +1,13 @@
-// Canvas 2D renderer v5: FIRST-PERSON glass cockpit (737-style) + TPP chase
+// Canvas 2D renderer v6: FIRST-PERSON glass cockpit (737-style) + TPP chase
 // view. The pilot sits inside the jet: a layered flight deck below —
 // glareshield with MCP, six glass screens (PFD / ND / EICAS / standby),
 // centre pedestal with throttle quadrant and CDU, yokes — and the route,
 // traffic and weather ahead through the windshield. C/V toggles to a chase
 // view with the jet rebuilt from scratch as the user's own FA-50 photos:
-// flat horizontal three-quarter side view, plain grey, long pointed nose,
-// tandem bubble canopy, ONE tall swept fin, swept wings, side intakes,
-// twin nozzles, underwing stores. The terrain is textured from aerial-photo
+// flat horizontal three-quarter side view, plain grey, SHORT fuselage,
+// WIDE wings, BIG tandem bubble canopy, ONE tall swept fin, side intakes,
+// twin nozzles, underwing stores (FA-50 ref 1 proportions). The terrain
+// is textured from aerial-photo
 // references: mottled ground, slope-shaded mountains with snow caps, a
 // wobbling coastline, sun glitter on water, cloud shadows. HUD carries
 // altitude / speed / heading. Waypoints are thin blue/white rings on a route
@@ -156,9 +157,9 @@ export function createRenderer(canvas) {
     ctx.rotate(-state.bank);
     ctx.translate(-CX, -horizonY);
     const sunLeft = level.sun[0] < 0.5;
-    drawRidge(state, 0.1, 130, 'rgba(118,148,184,0.8)', 'rgba(168,192,220,0.8)', true, sunLeft, horizonY);
-    drawRidge(state, 0.24, 88, 'rgba(96,130,172,0.85)', 'rgba(140,170,205,0.85)', true, sunLeft, horizonY);
-    drawRidge(state, 0.45, 52, 'rgba(72,108,78,0.9)', 'rgba(110,148,102,0.9)', false, sunLeft, horizonY);
+    drawRidge(state, 0.1, 130, 'rgba(96,138,110,0.8)', 'rgba(150,180,150,0.8)', false, sunLeft, horizonY);
+    drawRidge(state, 0.24, 88, 'rgba(70,118,70,0.88)', 'rgba(120,160,105,0.88)', false, sunLeft, horizonY);
+    drawRidge(state, 0.45, 52, 'rgba(48,92,52,0.92)', 'rgba(88,132,76,0.92)', false, sunLeft, horizonY);
     // Haze band hugging the horizon: depth between sky and ground.
     const haze = ctx.createLinearGradient(0, horizonY - 46, 0, horizonY + 34);
     haze.addColorStop(0, 'rgba(207,227,242,0)');
@@ -292,8 +293,10 @@ export function createRenderer(canvas) {
       }
     }
     // Fog blend: the far ground melts into the horizon instead of striping.
+    // v6: 0.5 washed the whole TPP frame out — 0.32 keeps the haze but
+    // lets the jet and the near ground read.
     const blend = ctx.createLinearGradient(0, horizonY, 0, horizonY + 220);
-    blend.addColorStop(0, 'rgba(207,227,242,0.5)');
+    blend.addColorStop(0, 'rgba(207,227,242,0.32)');
     blend.addColorStop(1, 'rgba(207,227,242,0)');
     ctx.fillStyle = blend;
     ctx.fillRect(0, horizonY, W, 220);
@@ -369,7 +372,7 @@ export function createRenderer(canvas) {
       const light = 0.8 + 0.38 * clamp(slope * sunSign, -1, 1);
       const snowLine = h + 22 * mot;
       if (snowLine > 112) c = shadeC([232, 238, 246], light * (1 + fine * 0.03)); // snow: white, blue in shadow
-      else if (hash2(Math.floor(wx / 26), Math.floor(wz / 26)) > 0.86) c = shadeC([84, 78, 72], light); // rock outcrop
+      else if (hash2(Math.floor(wx / 26), Math.floor(wz / 26)) > 0.93) c = shadeC([96, 90, 82], light); // rock outcrop (rare, light — v6: 0.86 made a dark quilt)
       else c = shadeC(snowLine > 60 ? [104, 116, 96] : [82, 120, 70], light * (1 + mot * 0.08));
     } else if (level.theme === 'desert') {
       const dune = Math.sin((wx * 0.5 + wz * 0.8) * 0.028 + mot * 1.8);
@@ -739,14 +742,16 @@ export function createRenderer(canvas) {
       const p = project(t.x, t.y, t.z, state);
       if (!p) continue;
       const s = p.s * t.size;
-      const w = 34 * s;
-      const h = 9 * s;
+      // v6: slimmer jet silhouette — v5's fat oval fuselage read as a
+      // white whale at distance. Longer, thinner, grey like a real jet.
+      const w = 40 * s;
+      const h = 6 * s;
       if (w < 4) continue;
       ctx.save();
       ctx.translate(p.x, p.y);
       const fusGrad = ctx.createLinearGradient(0, -h * 1.3, 0, h * 1.1);
-      const baseCol = t.type === 'airliner' ? '#e8edf1' : t.type === 'jet' ? '#c8ccd2' : '#e8dcc0';
-      fusGrad.addColorStop(0, '#ffffff');
+      const baseCol = t.type === 'airliner' ? '#dfe5ea' : t.type === 'jet' ? '#b8bec6' : '#d8ccb0';
+      fusGrad.addColorStop(0, '#e8edf1');
       fusGrad.addColorStop(0.5, baseCol);
       fusGrad.addColorStop(1, '#5a636d');
       ctx.fillStyle = fusGrad;
@@ -799,10 +804,16 @@ export function createRenderer(canvas) {
       ctx.fill();
       ctx.restore();
       if (d < 600) {
-        ctx.fillStyle = d < 150 ? '#ff8a7a' : '#ffd23e';
+        // Dark pill behind the label so it never sits unreadably on the
+        // hero jet or the sky (v6 shot 2: yellow text over the canopy).
         ctx.font = 'bold 13px sans-serif';
+        const tlabel = `${t.label.toUpperCase()} ${Math.round(d)} m`;
+        const tlw = ctx.measureText(tlabel).width + 12;
+        ctx.fillStyle = 'rgba(8,18,32,0.65)';
+        ctx.fillRect(p.x - tlw / 2, p.y - h * 2.2 - 24, tlw, 17);
+        ctx.fillStyle = d < 150 ? '#ff8a7a' : '#ffd23e';
         ctx.textAlign = 'center';
-        ctx.fillText(`${t.label.toUpperCase()} ${Math.round(d)} m`, p.x, p.y - h * 2.2 - 10);
+        ctx.fillText(tlabel, p.x, p.y - h * 2.2 - 10);
         ctx.textAlign = 'left';
       }
     }
@@ -1468,6 +1479,13 @@ export function createRenderer(canvas) {
   // nozzles, underwing stores. Screen-space drawing: the jet is the hero,
   // the projected world behind it is the sky and the ground.
   function drawJetTPP(world, state) {
+    // v6: model jet ditulis ulang LAGI dari foto FA-50 user (ref 1, UTAMA).
+    // Proporsi ref 1: fuselage TIDAK terlalu panjang, sayap LEBAR, canopy
+    // BESAR, fin TEGAK. v5 gagal di sini: fuselage 567 px (terlalu panjang,
+    // seperti dart), sayap tipis diagonal, canopy kecil. v6: fuselage 420 px
+    // (hidung 890, ekor 470), sayap dekat LEBAR (chord akar ~75 px),
+    // canopy bubble BESAR 160 px, fin tegak 136 px. Terbang DATAR
+    // HORIZONTAL three-quarter samping, hidung ke kanan, ABU-ABU POLOS.
     const s = state;
     const CXJ = 650; // jet centre x (rotation pivot)
     const Y0 = 445; // fuselage axis y
@@ -1489,7 +1507,7 @@ export function createRenderer(canvas) {
     }
     // Contrails: stream behind the wingtips (to the left, toward the tail).
     if (!s.onGround && s.speed > 60) {
-      for (const [tx, ty] of [[745, 560], [490, 352]]) {
+      for (const [tx, ty] of [[798, 576], [475, 322]]) {
         for (let i = 0; i < 2; i += 1) {
           ctx.strokeStyle = `rgba(255,255,255,${0.3 - i * 0.13})`;
           ctx.lineWidth = i === 0 ? 3 : 8;
@@ -1501,206 +1519,232 @@ export function createRenderer(canvas) {
       }
     }
     // Far (port) wing — behind the fuselage, darker (far side, shadowed).
-    // It sweeps up-left behind the fuselage; only the tip and leading edge
+    // Broad swept surface sweeping up-left; only the tip and leading edge
     // show above the fuselage line.
     ctx.fillStyle = '#8b959e';
     ctx.beginPath();
-    ctx.moveTo(580, 418);
-    ctx.lineTo(490, 352);
-    ctx.lineTo(515, 348);
-    ctx.lineTo(620, 416);
+    ctx.moveTo(605, 418);
+    ctx.lineTo(475, 322);
+    ctx.lineTo(505, 332);
+    ctx.lineTo(665, 420);
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.55)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(580, 418);
-    ctx.lineTo(490, 352);
+    ctx.moveTo(605, 418);
+    ctx.lineTo(475, 322);
     ctx.stroke();
     // Far horizontal stabilator (darker, behind the fuselage).
     ctx.fillStyle = '#8b959e';
     ctx.beginPath();
-    ctx.moveTo(435, 418);
-    ctx.lineTo(375, 370);
-    ctx.lineTo(400, 365);
-    ctx.lineTo(465, 414);
+    ctx.moveTo(495, 420);
+    ctx.lineTo(425, 362);
+    ctx.lineTo(448, 356);
+    ctx.lineTo(520, 414);
     ctx.closePath();
     ctx.fill();
-    // Fuselage: long tapered tube, nose right, tail left, FLAT and
-    // HORIZONTAL (FA-50 ref 1). Strong top light: bright spine, dark belly
-    // — the roundness cue. PLAIN GREY throughout.
-    const fus = ctx.createLinearGradient(0, 410, 0, 480);
-    fus.addColorStop(0, '#f2f5f7');
-    fus.addColorStop(0.55, '#c6ced6');
-    fus.addColorStop(1, '#5b656f');
+    // Fuselage: SHORTER tapered tube (420 px, ref 1), nose right, tail
+    // left, FLAT and HORIZONTAL. Strong top light: bright spine, dark
+    // belly — the roundness cue. PLAIN GREY throughout.
+    const fus = ctx.createLinearGradient(0, 412, 0, 478);
+    fus.addColorStop(0, '#d9dfe5');
+    fus.addColorStop(0.55, '#a9b3bd');
+    fus.addColorStop(1, '#4c565f');
     ctx.fillStyle = fus;
     ctx.beginPath();
-    ctx.moveTo(935, 445); // nose tip
-    ctx.lineTo(905, 434);
-    ctx.lineTo(840, 426);
-    ctx.lineTo(750, 420);
-    ctx.lineTo(650, 416);
-    ctx.lineTo(550, 416);
-    ctx.lineTo(460, 420);
-    ctx.lineTo(395, 426);
-    ctx.lineTo(368, 432);
-    ctx.lineTo(368, 458);
-    ctx.lineTo(395, 464);
-    ctx.lineTo(460, 470);
-    ctx.lineTo(550, 474);
-    ctx.lineTo(650, 474);
-    ctx.lineTo(750, 468);
-    ctx.lineTo(840, 458);
-    ctx.lineTo(905, 450);
+    ctx.moveTo(890, 445); // nose tip
+    ctx.lineTo(862, 432);
+    ctx.lineTo(800, 424);
+    ctx.lineTo(700, 418);
+    ctx.lineTo(600, 415);
+    ctx.lineTo(520, 417);
+    ctx.lineTo(482, 424);
+    ctx.lineTo(470, 434);
+    ctx.lineTo(470, 456);
+    ctx.lineTo(482, 466);
+    ctx.lineTo(520, 472);
+    ctx.lineTo(600, 475);
+    ctx.lineTo(700, 472);
+    ctx.lineTo(800, 461);
+    ctx.lineTo(862, 451);
     ctx.closePath();
     ctx.fill();
+    // Dark outline so the silhouette reads against haze/sky (v6 shot 2:
+    // the white fuselage vanished into the fog).
+    ctx.strokeStyle = 'rgba(40,50,62,0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
     // Radome: the nose cone a touch darker, with a panel line (ref 2).
     ctx.fillStyle = 'rgba(110,122,134,0.45)';
     ctx.beginPath();
-    ctx.moveTo(935, 445);
-    ctx.lineTo(905, 434);
-    ctx.lineTo(905, 450);
+    ctx.moveTo(890, 445);
+    ctx.lineTo(862, 432);
+    ctx.lineTo(862, 451);
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = 'rgba(30,40,50,0.35)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(862, 427);
-    ctx.lineTo(862, 455);
+    ctx.moveTo(828, 425);
+    ctx.lineTo(828, 456);
     ctx.stroke();
+    // Pitot tube on the nose tip (ref 1).
+    ctx.strokeStyle = '#3a4552';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(890, 445);
+    ctx.lineTo(906, 445);
+    ctx.stroke();
+    // LERX: leading-edge root extension — the wing's leading edge runs
+    // forward along the fuselage as a thin strake (FA-50/F-16, ref 1).
+    ctx.fillStyle = 'rgba(160,170,180,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(628, 452);
+    ctx.lineTo(712, 430);
+    ctx.lineTo(700, 442);
+    ctx.closePath();
+    ctx.fill();
     // Spine highlight + belly shadow + panel lines.
     ctx.strokeStyle = 'rgba(255,255,255,0.8)';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(480, 419);
-    ctx.lineTo(880, 430);
+    ctx.moveTo(500, 418);
+    ctx.lineTo(850, 428);
     ctx.stroke();
     ctx.strokeStyle = 'rgba(20,28,38,0.35)';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(480, 469);
-    ctx.lineTo(880, 452);
+    ctx.moveTo(500, 470);
+    ctx.lineTo(850, 452);
     ctx.stroke();
-    // Side intake scoop under the fuselage (near side, dark) — FA-50's
+    // Side intake scoops under the fuselage (near side, dark) — FA-50's
     // intakes sit low on the fuselage sides, below the canopy.
     ctx.fillStyle = '#141a22';
     ctx.beginPath();
-    ctx.ellipse(640, 482, 34, 9, 0.08, 0, Math.PI * 2);
+    ctx.ellipse(655, 481, 30, 8, 0.08, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.beginPath();
-    ctx.ellipse(640, 479, 22, 4, 0.08, 0, Math.PI * 2);
+    ctx.ellipse(655, 478, 20, 4, 0.08, 0, Math.PI * 2);
     ctx.fill();
-    // Tandem bubble canopy: a long dark glossy bubble on top of the
-    // fuselage, forward of centre (FA-50 refs 1-2). Two-seat split line.
-    const can = ctx.createLinearGradient(0, 390, 0, 418);
+    // Tandem bubble canopy: BIG and glossy — the FA-50's defining feature
+    // (ref 1: canopy besar). 160 px long, rising 34 px above the spine.
+    // Two-seat split line.
+    const can = ctx.createLinearGradient(0, 380, 0, 418);
     can.addColorStop(0, '#22384e');
     can.addColorStop(1, '#070d14');
     ctx.fillStyle = can;
     ctx.beginPath();
-    ctx.moveTo(645, 416);
-    ctx.quadraticCurveTo(665, 396, 705, 390);
-    ctx.quadraticCurveTo(750, 390, 782, 402);
-    ctx.quadraticCurveTo(795, 408, 792, 416);
+    ctx.moveTo(612, 416);
+    ctx.quadraticCurveTo(638, 390, 682, 383);
+    ctx.quadraticCurveTo(722, 380, 758, 392);
+    ctx.quadraticCurveTo(778, 402, 774, 416);
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.85)';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(672, 398);
-    ctx.lineTo(740, 394);
+    ctx.moveTo(648, 392);
+    ctx.lineTo(740, 386);
     ctx.stroke();
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(718, 392);
-    ctx.lineTo(718, 415);
+    ctx.moveTo(698, 384);
+    ctx.lineTo(698, 415);
     ctx.stroke();
-    // ONE vertical tail fin: tall and swept, rising from the rear
+    // ONE vertical tail fin: TALL and swept, rising from the rear
     // fuselage — PLAIN GREY with a bright leading edge and a small dark
     // tail marking (FA-50 ref 1). A single fin, not two.
-    const fin = ctx.createLinearGradient(430, 290, 555, 416);
-    fin.addColorStop(0, '#dfe4e9');
-    fin.addColorStop(1, '#a9b2bb');
+    const fin = ctx.createLinearGradient(530, 278, 594, 414);
+    fin.addColorStop(0, '#c9cfd6');
+    fin.addColorStop(1, '#8d97a1');
     ctx.fillStyle = fin;
     ctx.beginPath();
-    ctx.moveTo(470, 416);
-    ctx.lineTo(500, 300);
-    ctx.lineTo(518, 300);
-    ctx.lineTo(560, 416);
+    ctx.moveTo(530, 414);
+    ctx.lineTo(556, 280);
+    ctx.lineTo(574, 280);
+    ctx.lineTo(594, 414);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = 'rgba(40,50,62,0.55)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(470, 416);
-    ctx.lineTo(500, 300);
+    ctx.moveTo(530, 414);
+    ctx.lineTo(556, 280);
     ctx.stroke();
     ctx.fillStyle = '#2c343e';
-    ctx.fillRect(498, 314, 14, 5);
-    // Near (starboard) wing — toward the viewer, sweeping down-right,
-    // top surface sunlit (FA-50 ref 1: the near wing sweeps toward the
-    // camera). Light grey, bright leading edge, dark trailing edge.
-    const nw = ctx.createLinearGradient(600, 470, 775, 585);
-    nw.addColorStop(0, '#eef1f3');
-    nw.addColorStop(1, '#b3bcc4');
+    ctx.fillRect(552, 296, 14, 5);
+    // Near (starboard) wing — toward the viewer, BROAD and sweeping
+    // down-right (ref 1: sayap lebar). Wide root chord, top surface
+    // sunlit. Light grey, bright leading edge, dark trailing edge.
+    const nw = ctx.createLinearGradient(628, 458, 798, 590);
+    nw.addColorStop(0, '#d5dade');
+    nw.addColorStop(1, '#98a2ac');
     ctx.fillStyle = nw;
     ctx.beginPath();
-    ctx.moveTo(585, 468);
-    ctx.lineTo(745, 560);
-    ctx.lineTo(720, 575);
-    ctx.lineTo(700, 480);
+    ctx.moveTo(628, 458);
+    ctx.lineTo(798, 576);
+    ctx.lineTo(770, 590);
+    ctx.lineTo(698, 490);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = 'rgba(40,50,62,0.55)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
     ctx.strokeStyle = 'rgba(255,255,255,0.85)';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(585, 468);
-    ctx.lineTo(745, 560);
+    ctx.moveTo(628, 458);
+    ctx.lineTo(798, 576);
     ctx.stroke();
     ctx.strokeStyle = 'rgba(30,38,48,0.5)';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(700, 480);
-    ctx.lineTo(720, 575);
+    ctx.moveTo(698, 490);
+    ctx.lineTo(770, 590);
     ctx.stroke();
     // Wingtip rail + a small missile on the near tip (ref 1).
     ctx.fillStyle = '#9aa4ad';
     ctx.beginPath();
-    ctx.moveTo(738, 555);
-    ctx.lineTo(762, 567);
-    ctx.lineTo(758, 575);
-    ctx.lineTo(734, 565);
+    ctx.moveTo(792, 572);
+    ctx.lineTo(816, 584);
+    ctx.lineTo(812, 592);
+    ctx.lineTo(788, 580);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = '#c8cfd6';
     ctx.beginPath();
-    ctx.moveTo(758, 567);
-    ctx.lineTo(782, 575);
-    ctx.lineTo(758, 579);
+    ctx.moveTo(812, 584);
+    ctx.lineTo(836, 592);
+    ctx.lineTo(812, 596);
     ctx.closePath();
     ctx.fill();
     // Near horizontal stabilator (light grey, toward the viewer).
-    const sg = ctx.createLinearGradient(430, 470, 520, 545);
+    const sg = ctx.createLinearGradient(505, 468, 585, 552);
     sg.addColorStop(0, '#d5dbe0');
     sg.addColorStop(1, '#7d8894');
     ctx.fillStyle = sg;
     ctx.beginPath();
-    ctx.moveTo(430, 468);
-    ctx.lineTo(525, 540);
-    ctx.lineTo(505, 550);
-    ctx.lineTo(455, 476);
+    ctx.moveTo(505, 468);
+    ctx.lineTo(585, 540);
+    ctx.lineTo(565, 552);
+    ctx.lineTo(530, 478);
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = 'rgba(30,38,48,0.5)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(455, 476);
-    ctx.lineTo(505, 550);
+    ctx.moveTo(530, 478);
+    ctx.lineTo(565, 552);
     ctx.stroke();
     // Underwing stores: two small pylons with drop tanks under the near
     // wing (ref 2: stores under the wings).
-    for (const [sx2, sy2] of [[660, 510], [695, 530]]) {
+    for (const [sx2, sy2] of [[678, 518], [715, 540]]) {
       ctx.fillStyle = '#aab4be';
       ctx.beginPath();
       ctx.ellipse(sx2, sy2, 16, 6, 0.6, 0, Math.PI * 2);
@@ -1710,33 +1754,36 @@ export function createRenderer(canvas) {
       ctx.ellipse(sx2, sy2, 8, 3, 0.6, 0, Math.PI * 2);
       ctx.fill();
     }
-    // Twin exhaust nozzles at the tail: dark holes with metallic petal
-    // rings and an orange glow that grows with throttle.
-    for (const [nx2, ny2] of [[371, 435], [371, 455]]) {
+    // ONE exhaust nozzle at the tail (Sketchfab + specs: FA-50 has a
+    // SINGLE F404 engine — twin nozzles were wrong). Big dark hole with
+    // a metallic petal ring and an orange glow that grows with throttle.
+    {
+      const nx2 = 472;
+      const ny2 = 445;
       const glow = clamp(s.throttle, 0, 1);
       if (!s.onGround && glow > 0.25) {
-        const gg = ctx.createRadialGradient(nx2 - 16, ny2, 1, nx2 - 16, ny2, 12 + glow * 14);
+        const gg = ctx.createRadialGradient(nx2 - 18, ny2, 1, nx2 - 18, ny2, 15 + glow * 16);
         gg.addColorStop(0, `rgba(255,180,80,${0.25 + glow * 0.55})`);
         gg.addColorStop(0.5, `rgba(255,120,40,${0.12 + glow * 0.3})`);
         gg.addColorStop(1, 'rgba(255,120,40,0)');
         ctx.fillStyle = gg;
         ctx.beginPath();
-        ctx.arc(nx2 - 16, ny2, 12 + glow * 14, 0, Math.PI * 2);
+        ctx.arc(nx2 - 18, ny2, 15 + glow * 16, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.save();
       ctx.translate(nx2, ny2);
-      for (let p = 0; p < 10; p += 1) {
+      for (let p = 0; p < 12; p += 1) {
         ctx.fillStyle = p % 2 === 0 ? '#6b7680' : '#39424c';
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.arc(0, 0, 11, (p / 10) * Math.PI * 2, ((p + 1) / 10) * Math.PI * 2);
+        ctx.arc(0, 0, 14, (p / 12) * Math.PI * 2, ((p + 1) / 12) * Math.PI * 2);
         ctx.closePath();
         ctx.fill();
       }
       ctx.fillStyle = '#0b0f14';
       ctx.beginPath();
-      ctx.arc(0, 0, 8.5, 0, Math.PI * 2);
+      ctx.arc(0, 0, 11, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
       ctx.save();
@@ -1744,7 +1791,7 @@ export function createRenderer(canvas) {
       ctx.strokeStyle = '#2c343e';
       ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(0, 0, 11, 0, Math.PI * 2);
+      ctx.arc(0, 0, 14, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -1752,21 +1799,21 @@ export function createRenderer(canvas) {
     // (starboard) tip, white strobe at the tail.
     ctx.fillStyle = '#ff3b30';
     ctx.beginPath();
-    ctx.arc(490, 352, 4.5, 0, Math.PI * 2);
+    ctx.arc(475, 322, 4.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#34e07a';
     ctx.beginPath();
-    ctx.arc(745, 560, 4.5, 0, Math.PI * 2);
+    ctx.arc(798, 576, 4.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(365, 445, 3.5, 0, Math.PI * 2);
+    ctx.arc(466, 445, 3.5, 0, Math.PI * 2);
     ctx.fill();
     // Landing gear on the runway.
     if (s.onGround) {
       ctx.strokeStyle = '#3a4552';
       ctx.lineWidth = 4;
-      for (const [gx, gy, gy2] of [[860, 452, 500], [600, 474, 512], [700, 474, 512]]) {
+      for (const [gx, gy, gy2] of [[850, 452, 500], [600, 474, 512], [700, 474, 512]]) {
         ctx.beginPath();
         ctx.moveTo(gx, gy);
         ctx.lineTo(gx, gy2);
@@ -1859,11 +1906,11 @@ export function createRenderer(canvas) {
 
   function drawOver(world, best) {
     const s = world.state;
-    // v4: lighter veil + smaller panel, so the runway just landed on stays
-    // visible around the panel (v3's shot was mostly a text panel).
-    ctx.fillStyle = 'rgba(8,18,32,0.42)';
+    // v6: lighter veil + narrower panel, so the runway just landed on
+    // stays visible around the panel (v5's shot was mostly a text panel).
+    ctx.fillStyle = 'rgba(8,18,32,0.28)';
     ctx.fillRect(0, 0, W, H);
-    panel(380, 118, 520, 300);
+    panel(400, 118, 480, 300);
     ctx.textAlign = 'center';
     if (s.won) {
       ctx.fillStyle = '#7be495';

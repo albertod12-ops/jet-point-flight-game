@@ -124,3 +124,50 @@ The user sent 8 photos and rejected v4 ("Pakailah referensi ku. Buat semirip mun
 - **Ref 4 — airliner on a runway**: runway numbers, threshold, asphalt + grass. (Numbers not drawn — the strip is small in frame; threshold + centreline + grass carry it.)
 - **Refs 5–8 — cockpits (aurora night, city night, final approach, Airbus sunset)**: the FPP cockpit was already good and is untouched in v5; these refs confirm its lighting and layout (lit glass screens below, wide windshield, horizon outside). Recorded for a future pass, not applied.
 - **v5 terrain fix (user: "mapnya jelek")**: sea-leg props no longer stand on open water — islands are generated BEFORE props and sea props (palms + huts) are placed ON islands only (world.js). Storm shot verified: island with palms + red-roof huts, no trees on the sea.
+
+---
+
+# v6 — user: "Masih jelek banget. Rubah lagi map dan pesawat jet nya" (19:20 WIB 26 Nov) + Sketchfab (19:24 WIB)
+
+User rejected v5. Task brief (parent): ref 1 is PRIMARY — FA-50 proportions:
+fuselage NOT too long, WIDE wings, LARGE canopy, TALL fin; terrain GREEN
+forested mountains, white clouds, blue sky.
+
+## What was wrong in v5 (measured, not guessed)
+
+- Jet: fuselage 567 px long (nose 935 → tail 368) vs wingspan ~255 px —
+  a long dart, not the stubby FA-50 (length/span ~1.39). Near wing a thin
+  diagonal slab; canopy only 150 px and flat. v6: fuselage 420 px
+  (nose 890, tail 470), near wing BROAD (root chord ~75 px), canopy
+  160 px long rising 34 px, fin 136 px tall. Plain grey, no teal.
+- Map: distant ridges were blue-grey with snow caps (v3 snow-peaks ref) —
+  ref 1 mountains are GREEN and forested, no snow. v6: all three ridges
+  green tones (far hazy blue-green, mid green, near rich dark green),
+  snow caps removed.
+- TPP shot was the beach leg (orange sunset sky). v6: shot 2 moved to
+  Alpine Pass (level 4) — blue sky + green mountains = ref 1.
+- Traffic planes read as white whales (fat oval fuselage, pure white top).
+  v6: slimmer silhouette (w 40*s, h 6*s), greyer gradient.
+- WP ring sat right-of-centre in TPP (v5). v6: TPP staging flies until
+  the ring is within ~15° of heading, 300–900 m out — centred like cover.
+- Landing panel covered the runway centre. v6: veil 0.42→0.28, panel
+  520→480 px wide.
+
+## Sketchfab research (user 19:24 WIB: sketchfab.com/tags/fighter-jet)
+
+- KAI FA-50 Golden Eagle 3D model exists on Sketchfab by NETRUNNER_pl
+  (collection "Aircrafts fighters bombers jets" #0053; 10.2k views,
+  37 likes, animated, low-poly, rigged). F-16 models: Lowpoly F16
+  Block 70 (SIpriv, CC-BY), Low-Poly F-16 (Caelin), F-16 by Studio Lab.
+  FA-50 is the F-16 lineage (T-50 developed by KAI with Lockheed Martin).
+- Verified specs (KAI / Wikipedia / ODIN): length 13.14 m, wingspan
+  9.45 m (with wingtip missiles), height 4.94 m, crew 2, wing area
+  23.69 m², **1 × GE F404-GE-102 afterburning turbofan — SINGLE engine**,
+  Mach 1.5, 20 mm cannon, 7 hardpoints.
+- **Accuracy fix applied in v6: SINGLE exhaust nozzle.** v1–v5 drew TWIN
+  nozzles — wrong for an FA-50/F-16 (one engine, one nozzle). v6: one
+  large nozzle (r 14) at the tail centre with a 12-petal ring + afterburner.
+- Also applied from the 3D-model study: LERX (leading-edge root extension
+  strake ahead of the wing root) and a pitot tube on the nose tip.
+- Length/span ratio 1.39: v6 fuselage 420 px vs projected span ~320 px —
+  matches.
