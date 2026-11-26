@@ -1077,16 +1077,9 @@ export function buildProps(world) {
 
 // Puff table [dx, dy, dz, scale, shade]: six overlapping puffs.
 const PUFFS = [[0, 0, 0, 1, 0], [0.7, -0.18, 0.2, 0.6, -14], [-0.65, -0.12, -0.25, 0.55, -26], [0.25, 0.3, -0.05, 0.45, 6], [-0.3, 0.24, 0.18, 0.38, 2], [0.05, -0.3, 0.05, 0.7, -36], [1.05, -0.05, 0.3, 0.42, -20], [-1.0, 0.05, -0.2, 0.45, -18], [0.15, 0.42, 0.1, 0.4, 10]];
-// Cloud styles (user-picked refs, one per shot): [w, h, sz, top, bot] —
-// w: horizontal spread, h: vertical stretch, sz: size, top/bot: the
-// vertical-gradient palette (bright top, shaded base = the volume cue).
-// 0 ref2 Unity ball · 1 ref3 MSFS deck · 2 ref4 Ace tower.
-const CSTY = [
-  [1, 1, 1.5, [250, 250, 253], [168, 178, 214]],
-  [2.4, 0.42, 2.2, [240, 244, 250], [150, 164, 196]],
-  [0.85, 1.9, 1.7, [255, 255, 255], [104, 112, 128]],
-];
-const CSTY_LVL = { 0: 0, 1: 0, 2: 1, 3: 2, 4: 1, 5: 0 };
+// Cloud style (v18): user picked ref 3 MSFS deck for every level —
+// [w, h, sz, top, bot]: wide flat layered deck, blue-grey base.
+const CSTY = [[2.4, 0.42, 2.2, [240, 244, 250], [134, 150, 188]]];
 function cloudPuffs(mesh, x, y, z, s, st, alpha) {
   for (const p of PUFFS) {
     const b = p[4];
@@ -1098,7 +1091,7 @@ export function buildClouds(world) {
   const mesh = [];
   const H = world.terrainHeight.bind(world);
   const sunDir = (world.level.sun[0] - 0.5) * 2;
-  const st = CSTY[CSTY_LVL[world.level.id] ?? 0];
+  const st = CSTY[0];
   for (const cloud of world.clouds) {
     const s = cloud.s * st[2];
     cloudPuffs(mesh, cloud.x, cloud.y, cloud.z, s, st, 1);
