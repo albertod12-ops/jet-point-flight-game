@@ -1,19 +1,21 @@
-// Canvas 2D renderer v7: FIRST-PERSON glass cockpit (737-style) + TPP chase
+// Canvas 2D renderer v9: FIRST-PERSON glass cockpit (737-style) + TPP chase
 // view. The pilot sits inside the jet: a layered flight deck below —
 // glareshield with MCP, six glass screens (PFD / ND / EICAS / standby),
 // centre pedestal with throttle quadrant and CDU, yokes — and the route,
 // traffic and weather ahead through the windshield. C/V toggles to a chase
-// view with the jet rebuilt from scratch as the user's own FA-50 photos:
-// flat horizontal three-quarter side view, plain grey, SHORT fuselage,
-// WIDE wings, BIG tandem bubble canopy, ONE tall swept fin, side intakes,
-// single nozzle, underwing stores (FA-50 ref 1 proportions, Sketchfab
-// KAI FA-50 Golden Eagle hero render for the wing planform + LERX). The
-// terrain is textured from aerial-photo
-// references: mottled ground, slope-shaded mountains with snow caps, a
-// wobbling coastline, sun glitter on water, cloud shadows. HUD carries
-// altitude / speed / heading. Waypoints are thin blue/white rings on a route
-// ribbon; the RUNWAY is the target.
-import { FIELD, FOCAL, HORIZON_Y, JET, WORLD } from './config.js';
+// view. v9: the world is REAL 3D — a custom software renderer (gl3d.js)
+// builds the terrain as a heightmap mesh, the city as low-poly 3D boxes,
+// the FA-50 as a ~500-triangle model (Sketchfab KAI FA-50 Golden Eagle
+// hero render for the wing planform + LERX; the user's own FA-50 photos
+// for the level three-quarter profile, plain grey), and the rings as 3D
+// annuli you fly through. The map is GTA-low: flat-shaded low-poly city,
+// coastline, mountains, desert. The cockpit (APPROVED by the user, v7)
+// and the HUD are untouched 2D overlays.
+import { FIELD, FOCAL, HORIZON_Y } from './config.js';
+import {
+  makeCam, renderTris, xformMesh, buildJet, buildTerrain, buildRunway,
+  buildProps, buildClouds, buildRings, buildTrafficPlane,
+} from './gl3d.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -38,11 +40,6 @@ function clamp(v, lo, hi) {
 function fmt(n, digits = 0) {
   return n.toFixed(digits);
 }
-// Slow, low-amplitude shade so neighbouring ground rows agree (v1's
-// high-frequency sin made the visible horizontal banding).
-function groundShade(wx, wz) {
-  return 0.985 + 0.015 * Math.sin(wx * 0.011 + wz * 0.007) * Math.sin(wx * 0.005 - wz * 0.009);
-}
 
 // Deterministic 2-D value noise from integer hashing — no RNG state, so the
 // same world point always shades the same and screenshots stay reproducible.
@@ -66,17 +63,6 @@ function vnoise2(x, z) {
   const d = hash2(ix + 1, iz + 1);
   return (a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz) * 2 - 1;
 }
-// Two octaves of mottling in -1..1: fine grain plus broad patches. Sampled
-// diagonally so the patches never line up into a quilt.
-function mottle(wx, wz) {
-  return vnoise2(wx * 0.02 + wz * 0.013, wz * 0.02 - wx * 0.007) * 0.45
-    + vnoise2(wx * 0.006 + 40, wz * 0.006 + 17) * 0.35
-    + vnoise2(wx * 0.055 + 11, wz * 0.055 - 5) * 0.2;
-}
-// Multiply an [r,g,b] colour by a scalar, in place-safe style.
-function shadeC(c, f) {
-  return [c[0] * f, c[1] * f, c[2] * f];
-}
 // Darken an rgba() colour string by a factor (ridge face shading, v7).
 function darkRgba(rgba, f) {
   const m = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(rgba);
@@ -90,72 +76,6 @@ export function createRenderer(canvas) {
   const H = FIELD.height;
   const CX = W / 2;
   const PANEL_Y = 498; // top of the flight deck (windshield ends here)
-
-  // Project a world point into screen space from a camera state: yaw by
-  // heading, pitch by climb, roll by bank. Returns null behind the camera.
-  function project(x, y, z, state) {
-    const dx = x - state.x;
-    const dy = y - state.y;
-    const dz = z - state.z;
-    const sh = Math.sin(state.heading);
-    const ch = Math.cos(state.heading);
-    const f = dx * sh + dz * ch;
-    const r = dx * ch - dz * sh;
-    const cp = Math.cos(state.pitch);
-    const sp = Math.sin(state.pitch);
-    const fp = f * cp + dy * sp;
-    const up = -f * sp + dy * cp;
-    if (fp < 10) return null;
-    const cb = Math.cos(state.bank);
-    const sb = Math.sin(state.bank);
-    const x2 = r * cb - up * sb;
-    const y2 = r * sb + up * cb;
-    return {
-      x: CX + (x2 / fp) * FOCAL,
-      y: HORIZON_Y - (y2 / fp) * FOCAL,
-      s: FOCAL / fp,
-      d: fp,
-    };
-  }
-
-  // Route centreline x at a given z (linear through the rings) — the valley
-  // floor the mountain river follows. Rebuilt here from world.rings.
-  function routeCenterX(world, z) {
-    const rings = world.rings;
-    if (!rings || rings.length === 0) return 0;
-    const pts = [{ x: 0, z: 0 }];
-    for (const r of rings) pts.push({ x: r.x, z: r.z });
-    pts.push({ x: world.runwayB.x, z: WORLD.legLength });
-    if (z <= pts[0].z) return pts[0].x;
-    for (let i = 0; i < pts.length - 1; i += 1) {
-      const a = pts[i];
-      const b = pts[i + 1];
-      if (z >= a.z && z <= b.z) {
-        const t = b.z === a.z ? 0 : (z - a.z) / (b.z - a.z);
-        return a.x + (b.x - a.x) * t;
-      }
-    }
-    return pts[pts.length - 1].x;
-  }
-
-  // The horizon line on screen (v4): the ground's top edge — a straight
-  // line through (CX, horizonY) tilted by -bank, the same line the ground
-  // bands and the ridges sit on. NOTHING that belongs on the ground may
-  // ever appear above it (v3's floating buildings: project() and the
-  // ground disagreed by FOCAL*sin(pitch) and by a flipped bank sign).
-  function horizonYAt(x, state) {
-    return HORIZON_Y + FOCAL * Math.sin(state.pitch) - (x - CX) * Math.tan(state.bank);
-  }
-  function clipBelowHorizon(state) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(-40, horizonYAt(-40, state));
-    ctx.lineTo(W + 40, horizonYAt(W + 40, state));
-    ctx.lineTo(W + 40, H + 40);
-    ctx.lineTo(-40, H + 40);
-    ctx.closePath();
-    ctx.clip();
-  }
 
   function drawSky(world, state) {
     const level = world.level;
@@ -301,214 +221,6 @@ export function createRenderer(canvas) {
     }
   }
 
-  // Clouds, v3: soft volumetric puffs — bright white tops, grey-blue
-  // bellies — instead of flat white circles.
-  function cloudPuff(x, y, r, alpha) {
-    const lobes = [
-      [0, 0, 0.58],
-      [0.55, 5, 0.44],
-      [-0.55, 6, 0.42],
-      [0.2, 8, 0.36],
-      [-0.25, 9, 0.34],
-    ];
-    for (const [dx, dy, rr] of lobes) {
-      const lx = x + dx * r;
-      const ly = y + dy;
-      const lr = rr * r;
-      const g = ctx.createRadialGradient(lx, ly - lr * 0.35, lr * 0.1, lx, ly, lr);
-      g.addColorStop(0, `rgba(255,255,255,${alpha})`);
-      g.addColorStop(0.7, `rgba(244,247,250,${alpha * 0.9})`);
-      g.addColorStop(1, `rgba(200,212,224,${alpha * 0.55})`);
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.ellipse(lx, ly, lr, lr * 0.72, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  // Ground: scanline bands from the horizon down, drawn in a frame rotated
-  // by the bank so the horizon tilts with the jet. Colours now vary slowly
-  // (groundShade) and a fog gradient blends the far rows, so no banding.
-  function drawGround(world, state) {
-    const level = world.level;
-    const camH = Math.max(4, state.y - world.terrainHeight(state.x, state.z + 30));
-    const horizonY = HORIZON_Y + FOCAL * Math.sin(state.pitch);
-    const sh = Math.sin(state.heading);
-    const ch = Math.cos(state.heading);
-    const rows = 260;
-    const segN = 48; // v8: 24 made the ground read as a mosaic of flat
-    // rectangles — 48 halves the cell width so fields and forest patches
-    // resolve instead of tiling.
-    const dNear = 16;
-    const dFar = level.fogFar;
-    ctx.save();
-    ctx.translate(CX, horizonY);
-    ctx.rotate(-state.bank);
-    ctx.translate(-CX, -horizonY);
-    for (let r = rows - 1; r >= 0; r -= 1) {
-      const t = r / rows;
-      const d = dNear * Math.pow(dFar / dNear, t);
-      const yTop = horizonY + (camH * FOCAL) / d;
-      // The row spans from its far edge (d) to its near edge (the next
-      // row inward, r-1). Using r+1 here made yBot < yTop, so every row
-      // collapsed to a 1.5 px line and the ground showed through as
-      // stripes — the v1 banding. r=0 reaches past the bottom of the
-      // screen so the near ground is solid.
-      const dNearEdge = r === 0 ? dNear * 0.5 : dNear * Math.pow(dFar / dNear, (r - 1) / rows);
-      const yBot = horizonY + (camH * FOCAL) / dNearEdge;
-      const h = Math.max(1, yBot - yTop);
-      const z = state.z + ch * d;
-      const fogT = clamp((d - 300) / (dFar * 0.7), 0, level.storm ? 0.88 : 0.8);
-      for (let s = 0; s < segN; s += 1) {
-        const fx = (s + 0.5) / segN;
-        const off = ((fx - 0.5) * W / FOCAL) * d;
-        const wx = state.x + sh * d + ch * off;
-        const wz = z - sh * off;
-        ctx.fillStyle = groundColor(world, wx, wz, fogT, fx);
-        ctx.fillRect(s * (W / segN), yTop, W / segN + 1, h + 1);
-      }
-    }
-    // Fog blend: the far ground melts into the horizon instead of striping.
-    // v8: mountain 0.16 — the Alpine ground is green forest (ref 1), and
-    // the 0.2 wash still turned the mid-ground into a grey fog bank.
-    const blendA = level.theme === 'mountain' ? 0.16 : 0.32;
-    const blend = ctx.createLinearGradient(0, horizonY, 0, horizonY + 220);
-    blend.addColorStop(0, `rgba(207,227,242,${blendA})`);
-    blend.addColorStop(1, 'rgba(207,227,242,0)');
-    ctx.fillStyle = blend;
-    ctx.fillRect(0, horizonY, W, 220);
-    ctx.restore();
-  }
-
-  // Ground colour, v3: every theme is textured from the aerial references
-  // (references.md) — mottled patches, slope shading, a wobbling coastline
-  // with foam, sun glitter on water, dune waves, a real street grid. The
-  // screen-x fraction fx (0..1 across the frame) places the glitter path
-  // under the sun.
-  function groundColor(world, wx, wz, fogT, fx) {
-    const level = world.level;
-    const h = world.terrainHeight(wx, wz);
-    const mot = mottle(wx, wz);
-    const fine = vnoise2(wx * 0.11 + 7, wz * 0.11 - 3); // fine grain
-    let c;
-    let fogAmt = fogT;
-    let fogCol = [207, 227, 242];
-    const onRunway =
-      (Math.abs(wz - world.runwayA.z) < WORLD.runwayLength / 2 && Math.abs(wx - world.runwayA.x) < WORLD.runwayHalfWidth + 2) ||
-      (Math.abs(wz - world.runwayB.z) < WORLD.runwayLength / 2 && Math.abs(wx - world.runwayB.x) < WORLD.runwayHalfWidth + 2);
-    if (onRunway) {
-      c = [88, 88, 92];
-      const dash = Math.floor(wz / 26) % 2 === 0 && Math.abs(wx - (Math.abs(wz - world.runwayB.z) < WORLD.runwayLength / 2 ? world.runwayB.x : world.runwayA.x)) < 1.2;
-      if (dash) c = [235, 235, 230];
-    } else if (level.theme === 'city') {
-      // A city reads through its street grid (Bronx ref): dark streets,
-      // blocks in varied grey-beige tones, a few green park blocks.
-      // Streets stay light (a dark street at close range reads as a black
-      // hole in the windshield) and blocks vary only a little.
-      const bx = Math.floor(wx / 90);
-      const bz = Math.floor(wz / 90);
-      const blockTone = 0.92 + hash2(bx, bz) * 0.16; // per-block tone
-      const park = hash2(bx + 9, bz + 4) > 0.97;
-      const streetFade = clamp(1 - fogT * 1.4, 0, 1);
-      const street = Math.abs(((wx % 90) + 90) % 90 - 45) < 5 || Math.abs(((wz % 90) + 90) % 90 - 45) < 5;
-      if (street) c = shadeC([104, 104, 110], 1 - streetFade * 0.15);
-      else if (park) c = shadeC([108, 130, 96], blockTone);
-      else c = shadeC([138, 134, 124], blockTone * (1 + mot * 0.08));
-      c = shadeC(c, 1 + fine * 0.05);
-    } else if (level.theme === 'beach') {
-      // Wobbling coastline (Hailing Island ref): sea, foam lace, wet sand,
-      // mottled dunes — never a straight vertical edge.
-      const coastX = -60 + 38 * vnoise2(3.7, wz * 0.008);
-      if (wx < coastX - 5) {
-        c = shadeC([38, 116, 168], 1 + fine * 0.1);
-        c = seaGlitter(c, level, fx, fogT, wx, wz);
-        fogAmt = fogT * 0.8; // water keeps its blue farther out
-        fogCol = [176, 198, 214];
-      } else if (wx < coastX + 2) c = [238, 244, 238]; // foam lace
-      else if (wx < coastX + 20) c = shadeC([196, 172, 128], 1 + fine * 0.04); // wet sand
-      else {
-        // Dunes: long soft waves along the wind, light crest / dark trough.
-        const dune = Math.sin((wx * 0.35 + wz) * 0.03 + mot * 1.6);
-        c = shadeC([216, 190, 138], 1 + dune * 0.07 + mot * 0.06 + fine * 0.04);
-      }
-    } else if (level.theme === 'sea') {
-      c = shadeC([40, 118, 178], 1 + fine * 0.1 + mot * 0.05);
-      c = seaGlitter(c, level, fx, fogT, wx, wz);
-      if (level.storm && fine > 0.5) c = mixColor(c, [235, 242, 246], (fine - 0.5) * 1.2); // whitecaps
-      if (h > 2) {
-        // Islands: sand rim, mottled green top (Hailing Island ref).
-        c = h < 9 ? shadeC([216, 198, 158], 1 + fine * 0.05) : shadeC([92, 140, 82], 1 + mot * 0.12 + fine * 0.05);
-      }
-      fogAmt = fogT * 0.8; // water keeps its blue farther out
-      fogCol = [176, 198, 214];
-    } else if (level.theme === 'mountain') {
-      // v8: STRUCTURED terrain, not mottled noise. From the air, real
-      // mountains read through LARGE patches: valley-floor meadows and
-      // farmland, dark forest on the slopes, rock on the high crests, and
-      // a river winding down the valley floor (ref 1: green forested
-      // mountains with a valley). Low-frequency noise drives the big
-      // patches with soft blends, never hard thresholds; fine grain only
-      // textures them. Slope shading from the real terrain height.
-      const slope = (world.terrainHeight(wx + 12, wz) - world.terrainHeight(wx - 12, wz)) / 24;
-      const sunSign = level.sun[0] > 0.5 ? 1 : -1;
-      const light = 0.82 + 0.36 * clamp(slope * sunSign, -1, 1);
-      const patch = vnoise2(wx * 0.006 + 31, wz * 0.006 + 11); // -1..1, ~160 m
-      const patch2 = vnoise2(wx * 0.013 - 7, wz * 0.013 + 23); // ~75 m
-      const high = h + 26 * mot;
-      if (high < 48) {
-        // Valley floor: farmland rectangles (wheat / pasture / crop green)
-        // with soft edges so they never tile into a quilt.
-        const fx2 = Math.floor(wx / 150);
-        const fz2 = Math.floor(wz / 150);
-        const fh = hash2(fx2, fz2);
-        const field = fh < 0.34 ? [196, 178, 110] : fh < 0.62 ? [128, 158, 88] : [96, 140, 78];
-        const edge = clamp(0.5 + patch * 0.9, 0, 1);
-        c = shadeC(mixArr(field, [122, 152, 92], edge * 0.6), light * (1 + mot * 0.08 + fine * 0.04));
-      } else if (high > 118) {
-        // High crests: rock + dark conifer forest.
-        c = shadeC(patch > 0.1 ? [104, 98, 88] : [46, 78, 48], light * (1 + mot * 0.08 + fine * 0.04));
-      } else {
-        // Forested slopes: two greens blended by the patch noise.
-        const forest = patch > 0 ? [66, 112, 64] : [82, 130, 72];
-        c = shadeC(forest, light * (1 + mot * 0.12 + fine * 0.05));
-        if (patch2 > 0.55) c = shadeC(c, 0.88); // dark tree clumps
-      }
-      // River down the valley floor: a winding blue band following the
-      // route centreline (the valley the route flies through), with a
-      // sandy bank at its edge.
-      const rcx = routeCenterX(world, wz);
-      const rivX = rcx + 46 * vnoise2(3.1, wz * 0.0016);
-      const rd = Math.abs(wx - rivX);
-      if (high < 60 && rd < 11) {
-        const water = rd < 6 ? [64, 128, 148] : [92, 150, 164];
-        c = shadeC(water, light * (1 + fine * 0.06));
-        c = seaGlitter(c, level, fx, fogT, wx, wz);
-      } else if (high < 60 && rd < 15) {
-        c = shadeC([198, 186, 140], light); // sandy bank
-      }
-      // Mountain haze is greenish, not grey, and lighter than other themes.
-      fogAmt = fogT * 0.75;
-      fogCol = [198, 220, 208];
-    } else if (level.theme === 'desert') {
-      const dune = Math.sin((wx * 0.5 + wz * 0.8) * 0.028 + mot * 1.8);
-      const rocky = hash2(Math.floor(wx / 34), Math.floor(wz / 34)) > 0.88;
-      // Smooth height blend (a hard threshold cut the ground into steps).
-      const ht = clamp((h - 18) / 24, 0, 1);
-      const sand = mixColor([218, 172, 114], [196, 134, 88], ht);
-      c = rocky
-        ? shadeC([168, 118, 82], 1 + mot * 0.07)
-        : shadeC(sand, 1 + dune * 0.08 + mot * 0.06 + fine * 0.04);
-    } else {
-      if (wx < -800) {
-        c = shadeC([44, 122, 182], 1 + fine * 0.06);
-        c = seaGlitter(c, level, fx, fogT, wx, wz);
-      } else {
-        c = shadeC(h > 26 ? [98, 130, 76] : [114, 158, 84], 1 + mot * 0.1 + fine * 0.05);
-      }
-    }
-    return mixColor(c, fogCol, fogAmt);
-  }
-
   // Sun glitter on water: a bright path under the sun's screen position,
   // sparkling where the fine wave noise is high.
   function seaGlitter(c, level, fx, fogT, wx, wz) {
@@ -519,423 +231,6 @@ export function createRenderer(canvas) {
     if (sparkle < 0.15) return c;
     const g = near * (sparkle - 0.15) * 1.8;
     return [c[0] + 110 * g, c[1] + 115 * g, c[2] + 95 * g];
-  }
-
-  function drawClouds(world, state) {
-    for (const cloud of world.clouds) {
-      const p = project(cloud.x, cloud.y, cloud.z, state);
-      if (!p || p.y > HORIZON_Y + 60) continue;
-      const r = cloud.s * p.s;
-      if (r < 2) continue;
-      cloudPuff(p.x, p.y, r, 0.85);
-    }
-    // Cloud shadows on the ground: soft dark ellipses offset away from the
-    // sun — the cue that sells altitude in every flight sim. v4: clipped
-    // to the horizon like every other ground element.
-    clipBelowHorizon(state);
-    const sunDir = (world.level.sun[0] - 0.5) * 2;
-    for (const cloud of world.clouds) {
-      const groundH = world.terrainHeight(cloud.x, cloud.z);
-      const shX = cloud.x - sunDir * (cloud.y - groundH) * 0.45;
-      const p = project(shX, groundH + 2, cloud.z, state);
-      if (!p || p.y < HORIZON_Y || p.y > H + 40) continue;
-      const r = cloud.s * 1.5 * p.s;
-      if (r < 4) continue;
-      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
-      g.addColorStop(0, 'rgba(18,30,44,0.20)'); // v8: 0.13 was invisible
-      g.addColorStop(1, 'rgba(18,30,44,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y, r, r * 0.42, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore(); // the horizon clip
-    if (world.level.storm) {
-      for (const cloud of world.stormClouds) {
-        const p = project(cloud.x, cloud.y, cloud.z, state);
-        if (!p || p.y > HORIZON_Y + 80) continue;
-        const r = cloud.s * p.s;
-        if (r < 3) continue;
-        // Irregular dark mass: overlapping gradient lobes, lighter at the
-        // ragged bottom edge where the rain falls out — not a flat saucer.
-        const lobes = [
-          [0, 0, 1, 0.42],
-          [-0.6, 0.12, 0.55, 0.3],
-          [0.6, 0.1, 0.5, 0.28],
-          [-0.25, -0.1, 0.5, 0.26],
-          [0.3, -0.08, 0.45, 0.24],
-        ];
-        for (const [dx, dy, wr, hr] of lobes) {
-          const lx = p.x + dx * r;
-          const ly = p.y + dy * r;
-          const g = ctx.createRadialGradient(lx, ly - hr * r * 0.3, 1, lx, ly, wr * r);
-          g.addColorStop(0, 'rgba(48,54,64,0.92)');
-          g.addColorStop(0.75, 'rgba(66,74,86,0.85)');
-          g.addColorStop(1, 'rgba(96,106,120,0.55)');
-          ctx.fillStyle = g;
-          ctx.beginPath();
-          ctx.ellipse(lx, ly, wr * r, hr * r, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-    }
-  }
-
-  function drawProps(world, state) {
-    const visible = [];
-    for (const prop of world.props) {
-      const dx = prop.x - state.x;
-      const dz = prop.z - state.z;
-      const f = dx * Math.sin(state.heading) + dz * Math.cos(state.heading);
-      if (f < 14 || f > 1600) continue;
-      visible.push(prop);
-    }
-    visible.sort((a, b) => b.z - a.z);
-    // v4: no prop may ever appear above the horizon line — the clip is
-    // the guarantee, whatever the projection does.
-    clipBelowHorizon(state);
-    for (const prop of visible) {
-      const base = project(prop.x, world.terrainHeight(prop.x, prop.z), prop.z, state);
-      if (!base) continue;
-      const s = base.s * prop.s;
-      // Distance haze: far props melt into the fog.
-      const fogA = clamp(1 - (base.d - 400) / 1200, 0.25, 1);
-      ctx.save();
-      ctx.globalAlpha = fogA;
-      if (prop.kind === 'building' || prop.kind === 'building2') {
-        const w = (prop.kind === 'building' ? 22 : 30) * s;
-        const h = (prop.kind === 'building' ? 46 : 70) * s;
-        const tones = ['#7d838e', '#6b7686', '#8a8f98'];
-        ctx.fillStyle = tones[Math.abs(Math.floor(prop.x)) % 3];
-        ctx.fillRect(base.x - w / 2, base.y - h, w, h);
-        ctx.fillStyle = '#3d4550';
-        ctx.fillRect(base.x - w / 2, base.y - h, w, 3 * s);
-        // Lit windows.
-        ctx.fillStyle = 'rgba(255,214,120,0.9)';
-        const rows = Math.floor(h / (9 * s));
-        const cols = Math.floor(w / (8 * s));
-        for (let rI = 0; rI < rows; rI += 1) {
-          for (let cI = 0; cI < cols; cI += 1) {
-            if ((rI * 7 + cI * 3 + Math.floor(prop.x)) % 3 === 0) {
-              ctx.fillRect(base.x - w / 2 + 3 * s + cI * 8 * s, base.y - h + 6 * s + rI * 9 * s, 3.4 * s, 4.4 * s);
-            }
-          }
-        }
-      } else if (prop.kind === 'palm') {
-        const h = 22 * s;
-        ctx.strokeStyle = '#6b4a2b';
-        ctx.lineWidth = Math.max(1, 2.4 * s);
-        ctx.beginPath();
-        ctx.moveTo(base.x, base.y);
-        ctx.quadraticCurveTo(base.x + 3 * s, base.y - h * 0.6, base.x + 5 * s, base.y - h);
-        ctx.stroke();
-        ctx.fillStyle = '#2f7d3a';
-        for (let k = 0; k < 5; k += 1) {
-          const a = -0.4 - k * 0.5;
-          ctx.beginPath();
-          ctx.moveTo(base.x + 5 * s, base.y - h);
-          ctx.quadraticCurveTo(base.x + 5 * s + Math.cos(a) * 12 * s, base.y - h + Math.sin(a) * 7 * s, base.x + 5 * s + Math.cos(a) * 17 * s, base.y - h + Math.sin(a) * 12 * s);
-          ctx.quadraticCurveTo(base.x + 5 * s + Math.cos(a) * 9 * s, base.y - h + Math.sin(a) * 3 * s, base.x + 5 * s, base.y - h);
-          ctx.fill();
-        }
-      } else if (prop.kind === 'pine') {
-        const h = 24 * s;
-        ctx.fillStyle = '#2f6b34';
-        ctx.beginPath();
-        ctx.moveTo(base.x, base.y - h);
-        ctx.lineTo(base.x - h * 0.3, base.y);
-        ctx.lineTo(base.x + h * 0.3, base.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = '#6b4a2b';
-        ctx.fillRect(base.x - 1.5 * s, base.y - 2 * s, 3 * s, 3 * s);
-      } else if (prop.kind === 'cactus') {
-        const h = 14 * s;
-        ctx.fillStyle = '#3d7d3a';
-        ctx.fillRect(base.x - 2.4 * s, base.y - h, 4.8 * s, h);
-        ctx.fillRect(base.x - 7 * s, base.y - h * 0.62, 4 * s, 3 * s);
-        ctx.fillRect(base.x + 3 * s, base.y - h * 0.5, 4 * s, 3 * s);
-      } else if (prop.kind === 'rock') {
-        const h = 10 * s;
-        ctx.fillStyle = '#8a7f74';
-        ctx.beginPath();
-        ctx.moveTo(base.x - h * 0.7, base.y);
-        ctx.lineTo(base.x - h * 0.2, base.y - h);
-        ctx.lineTo(base.x + h * 0.5, base.y - h * 0.7);
-        ctx.lineTo(base.x + h * 0.7, base.y);
-        ctx.closePath();
-        ctx.fill();
-      } else if (prop.kind === 'hut') {
-        const w = 14 * s;
-        const h = 9 * s;
-        ctx.fillStyle = '#d8c9a8';
-        ctx.fillRect(base.x - w / 2, base.y - h, w, h);
-        ctx.fillStyle = '#a34d2e';
-        ctx.beginPath();
-        ctx.moveTo(base.x - w / 2 - 2 * s, base.y - h);
-        ctx.lineTo(base.x, base.y - h - 6 * s);
-        ctx.lineTo(base.x + w / 2 + 2 * s, base.y - h);
-        ctx.closePath();
-        ctx.fill();
-      } else {
-        const h = 15 * s;
-        ctx.fillStyle = '#3d7d3a';
-        ctx.beginPath();
-        ctx.moveTo(base.x, base.y - h);
-        ctx.lineTo(base.x - h * 0.32, base.y);
-        ctx.lineTo(base.x + h * 0.32, base.y);
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-    ctx.restore(); // the horizon clip
-  }
-
-  function drawRunway(world, state) {
-    clipBelowHorizon(state);
-    for (const rw of [world.runwayA, world.runwayB]) {
-      const rz = rw.z;
-      const rx = rw.x;
-      const fwd = Math.sin(state.heading);
-      const fwdZ = Math.cos(state.heading);
-      const rel = (rz - state.z) * fwdZ + (rx - state.x) * fwd;
-      if (rel < 12 || rel > 2600) continue;
-      const nearZ = Math.max(rz - WORLD.runwayLength / 2, state.z + 18);
-      const farZ = rz + WORLD.runwayLength / 2;
-      const a = project(rx - WORLD.runwayHalfWidth, 6.5, nearZ, state);
-      const b = project(rx + WORLD.runwayHalfWidth, 6.5, nearZ, state);
-      const c = project(rx + WORLD.runwayHalfWidth, 6.5, farZ, state);
-      const d = project(rx - WORLD.runwayHalfWidth, 6.5, farZ, state);
-      if (!a || !b || !c || !d) continue;
-      ctx.fillStyle = 'rgba(70,70,74,0.92)';
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.lineTo(c.x, c.y);
-      ctx.lineTo(d.x, d.y);
-      ctx.closePath();
-      ctx.fill();
-      // Centreline dashes + threshold piano keys at both ends (runway
-      // refs: full-width white stripes, grass at the sides).
-      ctx.fillStyle = '#f5f5f0';
-      function stripe(x0, z0, w, l) {
-        const p1 = project(x0 - w / 2, 6.5, z0 - l / 2, state);
-        const p2 = project(x0 + w / 2, 6.5, z0 - l / 2, state);
-        const p3 = project(x0 + w / 2, 6.5, z0 + l / 2, state);
-        const p4 = project(x0 - w / 2, 6.5, z0 + l / 2, state);
-        if (!p1 || !p2 || !p3 || !p4) return;
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.lineTo(p3.x, p3.y);
-        ctx.lineTo(p4.x, p4.y);
-        ctx.closePath();
-        ctx.fill();
-      }
-      for (const tz of [rz - WORLD.runwayLength / 2 + 22, rz + WORLD.runwayLength / 2 - 22]) {
-        for (let i = -2; i <= 2; i += 1) stripe(rx + i * 4.2, tz, 2.6, 26);
-      }
-      for (let z = rz - WORLD.runwayLength / 2 + 70; z < rz + WORLD.runwayLength / 2 - 50; z += 62) {
-        stripe(rx, z, 2.4, 26);
-      }
-      // Approach lights: green at the far threshold, red at the near one.
-      for (let i = -2; i <= 2; i += 1) {
-        const pFar = project(rx + i * 4, 7, rz + WORLD.runwayLength / 2 - 10, state);
-        if (pFar) {
-          ctx.fillStyle = '#37e08a';
-          ctx.beginPath();
-          ctx.arc(pFar.x, pFar.y, Math.max(2, 2.4 * pFar.s), 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      // PAPI lights beside the near threshold: 2 red + 2 white when on glide.
-      const papiY = 7;
-      for (let i = 0; i < 4; i += 1) {
-        const p = project(rx + WORLD.runwayHalfWidth + 14 + i * 5, papiY, rz - WORLD.runwayLength / 2 + 30, state);
-        if (!p) continue;
-        ctx.fillStyle = i < 2 ? '#ff3b30' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, Math.max(2, 2.6 * p.s), 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    ctx.restore(); // the horizon clip
-  }
-
-  // Waypoints are SMALL markers now (the runway is the target, per the
-  // rules' "a runway or a target ring ahead"): a glowing diamond for the
-  // next one, small dim diamonds for the ones after, a faint dashed route
-  // ribbon joining them, and a dashed guide from the flight-path marker.
-  function drawWaypoints(world, state) {
-    const next = world.nextRing();
-    const sorted = [...world.rings].sort((a, b) => {
-      const da = Math.hypot(a.x - state.x, a.y - state.y, a.z - state.z);
-      const db = Math.hypot(b.x - state.x, b.y - state.y, b.z - state.z);
-      return db - da;
-    });
-    // Route ribbon: dashed line through the next three unpassed waypoints.
-    const upcoming = world.rings.filter((r) => !r.passed).slice(0, 3);
-    if (upcoming.length > 0) {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(160,200,255,0.6)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([10, 10]);
-      ctx.beginPath();
-      let started = false;
-      for (const wp of upcoming) {
-        const p = project(wp.x, wp.y, wp.z, state);
-        if (!p) continue;
-        if (!started) {
-          ctx.moveTo(CX, 400);
-          started = true;
-        }
-        ctx.lineTo(p.x, p.y);
-      }
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
-    }
-    // Thin blue/white rings mark the route: stroke only, no fill, no glow
-    // — the path must read at a glance in a screenshot (the judge scores
-    // screenshots), but the rings must not dominate the scene like v1's.
-    for (const wp of sorted) {
-      const d = Math.hypot(wp.x - state.x, wp.y - state.y, wp.z - state.z);
-      if (d < 12 || d > 2600) continue;
-      const p = project(wp.x, wp.y, wp.z, state);
-      if (!p) continue;
-      const isNext = next === wp;
-      const r = clamp(WORLD.ringRadius * p.s, 8, 120);
-      if (r < 8) continue;
-      ctx.save();
-      if (wp.passed) {
-        ctx.strokeStyle = 'rgba(120,220,140,0.7)';
-        ctx.lineWidth = 2;
-      } else if (isNext) {
-        // Next ring: white core + soft blue halo, the brightest marker.
-        ctx.strokeStyle = 'rgba(125,184,255,0.45)';
-        ctx.lineWidth = 9;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 3.5;
-      } else {
-        ctx.strokeStyle = 'rgba(125,184,255,0.85)';
-        ctx.lineWidth = 3;
-      }
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-      if (isNext) {
-        // Dark pill behind the label so it reads over sky, ground or jet.
-        ctx.font = 'bold 12px sans-serif';
-        const label = `WP ${world.rings.indexOf(wp) + 1}`;
-        const lw = ctx.measureText(label).width + 12;
-        ctx.fillStyle = 'rgba(8,18,32,0.65)';
-        ctx.fillRect(p.x - lw / 2, p.y + r + 5, lw, 17);
-        ctx.fillStyle = '#fff';
-        ctx.textAlign = 'center';
-        ctx.fillText(label, p.x, p.y + r + 18);
-        ctx.textAlign = 'left';
-      }
-    }
-  }
-
-  // Other aircraft in the sky: a fuller silhouette with wings, tail and
-  // navigation lights, big enough to read at a glance.
-  function drawTraffic(world, state) {
-    const sorted = [...world.traffic].sort((a, b) => {
-      const da = Math.hypot(a.x - state.x, a.y - state.y, a.z - state.z);
-      const db = Math.hypot(b.x - state.x, b.y - state.y, b.z - state.z);
-      return db - da;
-    });
-    for (const t of sorted) {
-      const d = Math.hypot(t.x - state.x, t.y - state.y, t.z - state.z);
-      if (d < 15 || d > 2400) continue;
-      const p = project(t.x, t.y, t.z, state);
-      if (!p) continue;
-      // v7: in chase view a traffic plane projecting onto the hero jet is
-      // occluded — skip the plane AND its label (v6 shot 2: a "PROP
-      // PLANE" label sat on the canopy).
-      if (state.tpp && p.x > 400 && p.x < 940 && p.y > 260 && p.y < 620) continue;
-      const s = p.s * t.size;
-      // v6: slimmer jet silhouette — v5's fat oval fuselage read as a
-      // white whale at distance. Longer, thinner, grey like a real jet.
-      const w = 40 * s;
-      const h = 6 * s;
-      if (w < 4) continue;
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      const fusGrad = ctx.createLinearGradient(0, -h * 1.3, 0, h * 1.1);
-      const baseCol = t.type === 'airliner' ? '#dfe5ea' : t.type === 'jet' ? '#b8bec6' : '#d8ccb0';
-      fusGrad.addColorStop(0, '#e8edf1');
-      fusGrad.addColorStop(0.5, baseCol);
-      fusGrad.addColorStop(1, '#5a636d');
-      ctx.fillStyle = fusGrad;
-      // Fuselage.
-      ctx.beginPath();
-      ctx.moveTo(-w, 0);
-      ctx.quadraticCurveTo(-w * 0.4, -h * 1.3, 0, -h * 0.6);
-      ctx.quadraticCurveTo(w * 0.5, -h * 0.4, w, 0);
-      ctx.quadraticCurveTo(w * 0.5, h * 0.5, 0, h * 0.6);
-      ctx.quadraticCurveTo(-w * 0.4, h * 1.1, -w, 0);
-      ctx.closePath();
-      ctx.fill();
-      // Swept wing + tail fin.
-      ctx.fillStyle = 'rgba(160,168,178,0.95)';
-      ctx.beginPath();
-      ctx.moveTo(-w * 0.1, -h * 0.4);
-      ctx.lineTo(w * 0.55, -h * 2.1);
-      ctx.lineTo(w * 0.72, -h * 1.7);
-      ctx.lineTo(w * 0.2, -h * 0.2);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(-w * 0.95, -h * 0.3);
-      ctx.lineTo(-w * 0.8, -h * 2.0);
-      ctx.lineTo(-w * 0.62, -h * 1.8);
-      ctx.lineTo(-w * 0.72, -h * 0.2);
-      ctx.closePath();
-      ctx.fill();
-      // Cockpit windows.
-      ctx.fillStyle = 'rgba(20,30,44,0.9)';
-      ctx.beginPath();
-      ctx.moveTo(w * 0.55, -h * 0.45);
-      ctx.lineTo(w * 0.85, -h * 0.25);
-      ctx.lineTo(w * 0.8, h * 0.15);
-      ctx.lineTo(w * 0.5, h * 0.3);
-      ctx.closePath();
-      ctx.fill();
-      // Navigation lights: red left, green right, white tail.
-      ctx.fillStyle = '#ff3b30';
-      ctx.beginPath();
-      ctx.arc(-w * 0.9, 0, Math.max(1.5, 2.4 * s), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#34e07a';
-      ctx.beginPath();
-      ctx.arc(w * 0.9, 0, Math.max(1.5, 2.4 * s), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(-w, 0, Math.max(1.2, 1.8 * s), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      if (d < 600) {
-        // Dark pill behind the label so it never sits unreadably on the
-        // hero jet or the sky (v6 shot 2: yellow text over the canopy).
-        ctx.font = 'bold 13px sans-serif';
-        const tlabel = `${t.label.toUpperCase()} ${Math.round(d)} m`;
-        const tlw = ctx.measureText(tlabel).width + 12;
-        ctx.fillStyle = 'rgba(8,18,32,0.65)';
-        ctx.fillRect(p.x - tlw / 2, p.y - h * 2.2 - 24, tlw, 17);
-        ctx.fillStyle = d < 150 ? '#ff8a7a' : '#ffd23e';
-        ctx.textAlign = 'center';
-        ctx.fillText(tlabel, p.x, p.y - h * 2.2 - 10);
-        ctx.textAlign = 'left';
-      }
-    }
   }
 
   // Rain streaks + grey veil when the leg is a storm.
@@ -1592,553 +887,6 @@ export function createRenderer(canvas) {
     }
   }
 
-  // --- TPP: FA-50, rebuilt from scratch (v5) --------------------------------
-  // The user: "Rubah seluruh model pesawat nya, dan jadikan referensi ku".
-  // The v4 model is DELETED, not revised. This one is drawn from the user's
-  // own FA-50 photos (ref 1: two FA-50s in formation, ref 2: parked, side
-  // view): the jet flies FLAT and HORIZONTAL, three-quarter side view, nose
-  // to the right, PLAIN GREY (no teal anywhere) — long pointed nose, tandem
-  // bubble canopy, ONE tall swept fin, swept wings, side intakes, twin
-  // nozzles, underwing stores. Screen-space drawing: the jet is the hero,
-  // the projected world behind it is the sky and the ground.
-  function drawJetTPP(world, state) {
-    // v8: the jet rebuilt AGAIN — this time for VOLUME, not outline. The
-    // user (19:47 WIB): "3d pesawat jet nya ancur parahhhh" — v7's jet was
-    // a FLAT paper cutout: fuselage a flat white tube, wing a flat white
-    // triangle, far wing a separate blade. A 2D drawing reads as 3D only
-    // through (1) cylindrical shading on the fuselage — a soft specular
-    // band along the spine, a dark belly, a soft terminator between them;
-    // (2) chordwise shading on the wings — bright leading edge, darker
-    // trailing edge, plus a visible UNDERSIDE strip for thickness;
-    // (3) depth cues — ambient occlusion where wing/fin meet the body,
-    // glass canopy with sky reflection, a real afterburner flame cone.
-    // Shape from REF 1 (FA-50s in formation, LEVEL) + the Sketchfab FA-50
-    // hero render: fuselage 420 px, nose right, LEVEL HORIZONTAL, plain
-    // grey. The jet is NEVER rotated in the frame (v7).
-    const s = state;
-    ctx.save();
-    // Ground shadow: soft dark ellipse under the jet, smaller and fainter
-    // the higher it flies.
-    if (!s.onGround) {
-      const groundH = world.terrainHeight(s.x, s.z);
-      const alt = Math.max(10, s.y - groundH);
-      const shScale = clamp(110 / (alt + 40), 0.22, 1);
-      const shA = clamp(0.32 - alt * 0.0009, 0.07, 0.28);
-      const shG = ctx.createRadialGradient(620, 692, 4, 620, 692, 150 * shScale);
-      shG.addColorStop(0, `rgba(12,22,34,${shA})`);
-      shG.addColorStop(1, 'rgba(12,22,34,0)');
-      ctx.fillStyle = shG;
-      ctx.beginPath();
-      ctx.ellipse(620, 692, 150 * shScale, 10 * shScale, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // Contrails: stream behind the wingtips (to the left, toward the tail).
-    if (!s.onGround && s.speed > 60) {
-      for (const [tx, ty] of [[798, 576], [492, 318]]) {
-        for (let i = 0; i < 2; i += 1) {
-          ctx.strokeStyle = `rgba(255,255,255,${0.3 - i * 0.13})`;
-          ctx.lineWidth = i === 0 ? 3 : 8;
-          ctx.beginPath();
-          ctx.moveTo(tx, ty);
-          ctx.lineTo(tx - (90 + i * 40), ty + 12);
-          ctx.stroke();
-        }
-      }
-    }
-    // ---- FAR (port) wing — behind the fuselage, seen from above. v8:
-    // SHALLOW (~30°) and BROAD, its root tucked UNDER the fuselage so the
-    // body covers the joint — the wing grows out of the fuselage, it is
-    // not pasted on it. The chord is EXAGGERATED (an illustrator's
-    // three-quarter view, like ref 1): strict perspective from this low
-    // chase angle foreshortens the far wing's chord to a sliver, so the
-    // tip chord is drawn wide — a broad triangle, not a blade.
-    // Chordwise shading: bright leading edge, darker trailing edge.
-    {
-      const fw = ctx.createLinearGradient(556, 366, 596, 398);
-      fw.addColorStop(0, '#e2e8ec');
-      fw.addColorStop(0.5, '#b0bac2');
-      fw.addColorStop(1, '#7e8891');
-      ctx.fillStyle = fw;
-      ctx.beginPath();
-      ctx.moveTo(625, 416); // leading-edge root (inside the fuselage)
-      ctx.lineTo(465, 312); // leading-edge tip
-      ctx.lineTo(505, 355); // blunt tip — WIDE chord
-      ctx.lineTo(685, 445); // trailing-edge root (inside the fuselage)
-      ctx.closePath();
-      ctx.fill();
-      // Leading-edge highlight; trailing edge darker line.
-      ctx.strokeStyle = 'rgba(255,255,255,0.65)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(625, 416);
-      ctx.lineTo(465, 312);
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(40,50,62,0.4)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(505, 355);
-      ctx.lineTo(685, 445);
-      ctx.stroke();
-      // Wingtip rail ON the blunt tip + red nav light ON the tip.
-      ctx.fillStyle = '#6d7680';
-      ctx.beginPath();
-      ctx.moveTo(465, 312);
-      ctx.lineTo(479, 306);
-      ctx.lineTo(505, 355);
-      ctx.lineTo(493, 359);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#ff3b30';
-      ctx.beginPath();
-      ctx.arc(485, 333, 4.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // ---- FAR stabilator: a SMALL tip peeking out under the tail, mostly
-    // hidden behind the fin and fuselage (v8 round 1's big quad read as a
-    // second wing blade next to the far wing — ref 1: stabilators are
-    // small and mostly edge-on from this angle).
-    {
-      ctx.fillStyle = '#7d8892';
-      ctx.beginPath();
-      ctx.moveTo(518, 420);
-      ctx.lineTo(476, 396);
-      ctx.lineTo(488, 390);
-      ctx.lineTo(528, 414);
-      ctx.closePath();
-      ctx.fill();
-    }
-    // ---- FUSELAGE: a curved profile, not a straight tube. The top edge
-    // rises gently over the canopy and falls to the tail; the belly bulges
-    // slightly at mid-body. Five-stop vertical gradient + a soft specular
-    // band along the spine + a dark belly + AO where the wing and fin
-    // meet the body.
-    {
-      const fus = ctx.createLinearGradient(0, 412, 0, 478);
-      fus.addColorStop(0, '#f2f5f7');
-      fus.addColorStop(0.3, '#d3dae0');
-      fus.addColorStop(0.55, '#a2adb7');
-      fus.addColorStop(0.8, '#5d6873');
-      fus.addColorStop(1, '#2e3841');
-      ctx.fillStyle = fus;
-      ctx.beginPath();
-      ctx.moveTo(890, 445); // nose tip
-      ctx.quadraticCurveTo(862, 431, 800, 423); // nose top curve
-      ctx.quadraticCurveTo(700, 417, 600, 415); // spine, mid-body
-      ctx.quadraticCurveTo(520, 416, 482, 424); // tail top
-      ctx.lineTo(470, 434);
-      ctx.lineTo(470, 456);
-      ctx.quadraticCurveTo(482, 466, 520, 472); // tail bottom
-      ctx.quadraticCurveTo(600, 476, 700, 473); // belly bulge
-      ctx.quadraticCurveTo(800, 462, 862, 452); // nose bottom curve
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(40,50,62,0.55)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      // Specular band along the spine: NARROW and soft — a wide band
-      // (v8 round 1) made the whole top read as one white stripe. Two
-      // passes (narrow soft + thin bright core) so the edge melts.
-      ctx.strokeStyle = 'rgba(255,255,255,0.20)';
-      ctx.lineWidth = 7;
-      ctx.beginPath();
-      ctx.moveTo(520, 420);
-      ctx.quadraticCurveTo(680, 418, 850, 429);
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(540, 419);
-      ctx.quadraticCurveTo(680, 417, 840, 428);
-      ctx.stroke();
-      // Belly shadow: soft dark band along the lower edge.
-      ctx.strokeStyle = 'rgba(18,26,34,0.30)';
-      ctx.lineWidth = 8;
-      ctx.beginPath();
-      ctx.moveTo(520, 470);
-      ctx.quadraticCurveTo(680, 473, 840, 453);
-      ctx.stroke();
-      // Panel lines that follow the body's curvature (subtle).
-      ctx.strokeStyle = 'rgba(30,40,50,0.20)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(560, 424);
-      ctx.quadraticCurveTo(700, 420, 830, 436);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(560, 464);
-      ctx.quadraticCurveTo(700, 466, 830, 450);
-      ctx.stroke();
-      // Ambient occlusion where the near wing and the fin meet the body.
-      const ao1 = ctx.createRadialGradient(640, 452, 2, 640, 452, 46);
-      ao1.addColorStop(0, 'rgba(15,22,30,0.22)');
-      ao1.addColorStop(1, 'rgba(15,22,30,0)');
-      ctx.fillStyle = ao1;
-      ctx.beginPath();
-      ctx.ellipse(640, 452, 46, 18, 0, 0, Math.PI * 2);
-      ctx.fill();
-      const ao2 = ctx.createRadialGradient(565, 414, 2, 565, 414, 34);
-      ao2.addColorStop(0, 'rgba(15,22,30,0.18)');
-      ao2.addColorStop(1, 'rgba(15,22,30,0)');
-      ctx.fillStyle = ao2;
-      ctx.beginPath();
-      ctx.ellipse(565, 414, 34, 14, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // Radome: the nose cone a touch darker, with a curved panel seam.
-    ctx.fillStyle = 'rgba(110,122,134,0.45)';
-    ctx.beginPath();
-    ctx.moveTo(890, 445);
-    ctx.quadraticCurveTo(862, 431, 828, 425);
-    ctx.lineTo(828, 456);
-    ctx.quadraticCurveTo(862, 452, 890, 445);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(30,40,50,0.35)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(828, 425);
-    ctx.quadraticCurveTo(826, 440, 828, 456);
-    ctx.stroke();
-    // Pitot tube on the nose tip.
-    ctx.strokeStyle = '#3a4552';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(890, 445);
-    ctx.lineTo(906, 445);
-    ctx.stroke();
-    // LERX: the wing's leading edge runs forward along the fuselage as a
-    // long smooth strake (FA-50/F-16, Sketchfab hero). Soft gradient that
-    // melts into the fuselage top, with a thin dark lower edge for
-    // definition.
-    {
-      const lx = ctx.createLinearGradient(636, 454, 772, 428);
-      lx.addColorStop(0, '#b3bac2');
-      lx.addColorStop(1, '#cdd3d9');
-      ctx.fillStyle = lx;
-      ctx.beginPath();
-      ctx.moveTo(636, 454);
-      ctx.lineTo(772, 428);
-      ctx.lineTo(712, 452);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(30,40,50,0.30)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(636, 454);
-      ctx.lineTo(712, 452);
-      ctx.stroke();
-    }
-    // ---- INTAKE: a real scoop with depth — light rim on the upper lip,
-    // dark hole inside, shadow below (v7's was a flat black oval).
-    {
-      ctx.fillStyle = '#9aa4ad';
-      ctx.beginPath();
-      ctx.ellipse(655, 480, 32, 9, 0.08, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#0e141b';
-      ctx.beginPath();
-      ctx.ellipse(655, 481, 26, 7, 0.08, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.ellipse(655, 479, 28, 7, 0.08, Math.PI * 1.15, Math.PI * 1.85);
-      ctx.stroke();
-    }
-    // ---- CANOPY: glass, not a black blob. Sky reflection at the top
-    // (pale steel blue), deep blue-black at the base, a strong diagonal
-    // specular streak, the two-seat frame split, and a dark base seam
-    // where the bubble meets the fuselage.
-    {
-      const can = ctx.createLinearGradient(0, 378, 0, 418);
-      can.addColorStop(0, '#9fc3dd');
-      can.addColorStop(0.35, '#4a7ba0');
-      can.addColorStop(0.7, '#1d3a52');
-      can.addColorStop(1, '#0a141f');
-      ctx.fillStyle = can;
-      ctx.beginPath();
-      ctx.moveTo(612, 416);
-      ctx.quadraticCurveTo(638, 390, 682, 383);
-      ctx.quadraticCurveTo(722, 380, 758, 392);
-      ctx.quadraticCurveTo(778, 402, 774, 416);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(16,26,38,0.7)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      // Horizon reflection: a pale band across the glass.
-      ctx.strokeStyle = 'rgba(220,236,246,0.28)';
-      ctx.lineWidth = 7;
-      ctx.beginPath();
-      ctx.moveTo(626, 402);
-      ctx.quadraticCurveTo(690, 394, 762, 402);
-      ctx.stroke();
-      // Specular streaks: one strong diagonal, one small.
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(648, 392);
-      ctx.lineTo(742, 386);
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(660, 406);
-      ctx.lineTo(724, 402);
-      ctx.stroke();
-      // Two-seat frame split.
-      ctx.strokeStyle = 'rgba(8,14,22,0.6)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(698, 384);
-      ctx.lineTo(698, 415);
-      ctx.stroke();
-    }
-    // ---- ONE vertical tail fin: TALL and swept, PLAIN GREY. Chordwise
-    // shading — bright leading edge, darker trailing edge — plus a darker
-    // base fillet where it meets the fuselage and a small dark tail
-    // marking (FA-50 ref 1). Leading edge swept ~21°.
-    {
-      const fin = ctx.createLinearGradient(528, 300, 606, 380);
-      fin.addColorStop(0, '#e2e7eb');
-      fin.addColorStop(0.55, '#a9b3bc');
-      fin.addColorStop(1, '#6e7880');
-      ctx.fillStyle = fin;
-      ctx.beginPath();
-      ctx.moveTo(528, 414);
-      ctx.quadraticCurveTo(556, 350, 578, 282);
-      ctx.quadraticCurveTo(586, 278, 594, 282); // rounded tip
-      ctx.quadraticCurveTo(600, 350, 606, 414);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(40,50,62,0.55)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(528, 414);
-      ctx.quadraticCurveTo(556, 350, 578, 282);
-      ctx.stroke();
-      // Base fillet: darker where the fin grows out of the fuselage.
-      ctx.fillStyle = 'rgba(30,40,50,0.25)';
-      ctx.beginPath();
-      ctx.moveTo(528, 414);
-      ctx.lineTo(556, 386);
-      ctx.lineTo(606, 386);
-      ctx.lineTo(606, 414);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#2c343e';
-      ctx.fillRect(574, 298, 14, 5);
-    }
-    // ---- NEAR (starboard) wing — toward the viewer, BROAD, sweeping
-    // down-right (Sketchfab hero + ref 1: wide, blunt tip). Chordwise
-    // shading (bright leading edge → darker trailing edge) + a visible
-    // UNDERSIDE strip along the trailing edge so the wing has thickness,
-    // not a flat blade.
-    {
-      const nw = ctx.createLinearGradient(723, 506, 699, 557);
-      nw.addColorStop(0, '#f2f5f7');
-      nw.addColorStop(0.45, '#b8c0c8');
-      nw.addColorStop(1, '#6d7880');
-      ctx.fillStyle = nw;
-      ctx.beginPath();
-      ctx.moveTo(640, 446); // leading-edge root
-      ctx.lineTo(806, 566); // leading-edge tip
-      ctx.lineTo(786, 592); // blunt tip, trailing edge
-      ctx.lineTo(612, 522); // trailing-edge root
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(40,50,62,0.55)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      // Underside: a DARK strip below the trailing edge — the wing's
-      // lower surface seen from this angle (the thickness cue). Wide and
-      // dark enough to read as a separate surface, not a line.
-      ctx.fillStyle = 'rgba(58,68,80,0.95)';
-      ctx.beginPath();
-      ctx.moveTo(612, 522);
-      ctx.lineTo(786, 592);
-      ctx.lineTo(778, 604);
-      ctx.lineTo(604, 534);
-      ctx.closePath();
-      ctx.fill();
-      // Spanwise shading: the tip falls slightly darker.
-      ctx.fillStyle = 'rgba(40,50,62,0.14)';
-      ctx.beginPath();
-      ctx.moveTo(740, 524);
-      ctx.lineTo(806, 566);
-      ctx.lineTo(786, 592);
-      ctx.lineTo(726, 548);
-      ctx.closePath();
-      ctx.fill();
-      // Spanwise panel line, subtle.
-      ctx.strokeStyle = 'rgba(60,70,82,0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(628, 484);
-      ctx.lineTo(796, 579);
-      ctx.stroke();
-      // Leading-edge highlight.
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(640, 446);
-      ctx.lineTo(806, 566);
-      ctx.stroke();
-      // Wingtip rail + missile ON the blunt tip (ref 1), shaded like a
-      // small cylinder: bright top, dark bottom.
-      ctx.fillStyle = '#9aa4ad';
-      ctx.beginPath();
-      ctx.moveTo(800, 562);
-      ctx.lineTo(826, 572);
-      ctx.lineTo(822, 582);
-      ctx.lineTo(796, 572);
-      ctx.closePath();
-      ctx.fill();
-      const mg = ctx.createLinearGradient(0, 574, 0, 588);
-      mg.addColorStop(0, '#d5dbe0');
-      mg.addColorStop(1, '#6d7680');
-      ctx.fillStyle = mg;
-      ctx.beginPath();
-      ctx.moveTo(822, 574);
-      ctx.lineTo(848, 582);
-      ctx.lineTo(846, 588);
-      ctx.lineTo(822, 586);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#3a4552';
-      ctx.beginPath();
-      ctx.moveTo(848, 582);
-      ctx.lineTo(856, 584);
-      ctx.lineTo(848, 588);
-      ctx.closePath();
-      ctx.fill();
-    }
-    // ---- UNDERWING STORES: they HANG below the wing on pylons (v7's
-    // dark ellipses sat ON the wing surface and read as spots). The
-    // pylon drops from the wing's trailing edge down to a shaded tank.
-    for (const [px, pyTop, pw, pyC] of [[678, 544, 17, 562], [715, 560, 15, 578]]) {
-      ctx.strokeStyle = '#5b656f';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(px, pyTop);
-      ctx.lineTo(px, pyC - 4);
-      ctx.stroke();
-      const sg2 = ctx.createLinearGradient(0, pyC - 6, 0, pyC + 7);
-      sg2.addColorStop(0, '#c7cfd6');
-      sg2.addColorStop(1, '#4a545e');
-      ctx.fillStyle = sg2;
-      ctx.beginPath();
-      ctx.ellipse(px, pyC, pw, 6.5, 0.6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(30,38,48,0.4)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-    // ---- NEAR stabilator: small, tucked at the tail, mostly edge-on.
-    {
-      const sg = ctx.createLinearGradient(505, 466, 548, 520);
-      sg.addColorStop(0, '#c3c9cf');
-      sg.addColorStop(1, '#6d7680');
-      ctx.fillStyle = sg;
-      ctx.beginPath();
-      ctx.moveTo(505, 466);
-      ctx.lineTo(548, 510);
-      ctx.lineTo(536, 520);
-      ctx.lineTo(520, 474);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(30,38,48,0.5)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(520, 474);
-      ctx.lineTo(536, 520);
-      ctx.stroke();
-    }
-    // ---- ONE exhaust nozzle + AFTERBURNER FLAME (FA-50: single F404).
-    // The flame is a tapered cone extending back from the nozzle — bright
-    // core, orange mid, transparent tip — not a floating orange ball
-    // (v7's radial glow read as a blob behind the tail).
-    {
-      const nx2 = 472;
-      const ny2 = 445;
-      const glow = clamp(s.throttle, 0, 1);
-      if (!s.onGround && glow > 0.25) {
-        const fl = 34 + glow * 30;
-        const fg = ctx.createLinearGradient(nx2, ny2, nx2 - fl, ny2);
-        fg.addColorStop(0, `rgba(255,244,200,${0.75 + glow * 0.2})`);
-        fg.addColorStop(0.45, `rgba(255,170,70,${0.5 + glow * 0.35})`);
-        fg.addColorStop(1, 'rgba(255,90,20,0)');
-        ctx.fillStyle = fg;
-        ctx.beginPath();
-        ctx.moveTo(nx2, ny2 - 10);
-        ctx.quadraticCurveTo(nx2 - fl * 0.55, ny2 - 7, nx2 - fl, ny2);
-        ctx.quadraticCurveTo(nx2 - fl * 0.55, ny2 + 7, nx2, ny2 + 10);
-        ctx.closePath();
-        ctx.fill();
-        // Bright core.
-        ctx.fillStyle = `rgba(255,250,220,${0.7 + glow * 0.25})`;
-        ctx.beginPath();
-        ctx.moveTo(nx2, ny2 - 5);
-        ctx.quadraticCurveTo(nx2 - fl * 0.5, ny2 - 3.5, nx2 - fl * 0.72, ny2);
-        ctx.quadraticCurveTo(nx2 - fl * 0.5, ny2 + 3.5, nx2, ny2 + 5);
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.save();
-      ctx.translate(nx2, ny2);
-      for (let p = 0; p < 12; p += 1) {
-        ctx.fillStyle = p % 2 === 0 ? '#6b7680' : '#39424c';
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.arc(0, 0, 14, (p / 12) * Math.PI * 2, ((p + 1) / 12) * Math.PI * 2);
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.fillStyle = '#0b0f14';
-      ctx.beginPath();
-      ctx.arc(0, 0, 11, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      ctx.save();
-      ctx.translate(nx2, ny2);
-      ctx.strokeStyle = '#2c343e';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(0, 0, 14, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-    // Navigation lights: green on the near (starboard) tip, white strobe
-    // at the tail. (Red is on the far tip, drawn with the far wing.)
-    ctx.fillStyle = '#34e07a';
-    ctx.beginPath();
-    ctx.arc(798, 578, 4.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(466, 445, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    // Landing gear on the runway.
-    if (s.onGround) {
-      ctx.strokeStyle = '#3a4552';
-      ctx.lineWidth = 4;
-      for (const [gx, gy, gy2] of [[850, 452, 500], [600, 474, 512], [700, 474, 512]]) {
-        ctx.beginPath();
-        ctx.moveTo(gx, gy);
-        ctx.lineTo(gx, gy2);
-        ctx.stroke();
-        ctx.fillStyle = '#141a22';
-        ctx.beginPath();
-        ctx.arc(gx, gy2 + 4, 7, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    ctx.restore();
-  }
-
   function panel(x, y, w, h) {
     ctx.fillStyle = 'rgba(8,18,32,0.72)';
     ctx.fillRect(x, y, w, h);
@@ -2147,12 +895,55 @@ export function createRenderer(canvas) {
     ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
   }
 
+  // ---- v9: the world as REAL 3D ----------------------------------------
+  // The static mesh (terrain + runway + props + clouds) is built once per
+  // world and cached; rings, traffic and the hero jet move, so they are
+  // transformed fresh every frame. Everything goes into ONE triangle list
+  // per frame, so the painter's sort is correct across the whole scene
+  // (a traffic plane behind a mountain must not paint over it). drawSky
+  // stays 2D (gradient + sun + distant ridges) as the far backdrop; the
+  // cockpit and HUD stay 2D overlays on top. drawCockpit is APPROVED —
+  // untouched.
+  const worldMeshCache = new WeakMap();
+  function hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function drawWorld3D(world, cam, withJet) {
+    const level = world.level;
+    let staticMesh = worldMeshCache.get(world);
+    if (!staticMesh) {
+      staticMesh = [
+        ...buildTerrain(world),
+        ...buildRunway(world),
+        ...buildProps(world),
+        ...buildClouds(world),
+      ];
+      worldMeshCache.set(world, staticMesh);
+    }
+    // Sun: east or west by the level's sun x (matches the old 2D slope
+    // shading), high, slightly ahead. Fog: the horizon colour, from just
+    // past the nose to the level's fogFar.
+    const sunSign = level.sun[0] > 0.5 ? 1 : -1;
+    const sun = [sunSign * 0.55, 0.85, 0.35];
+    const fogColor = hexToRgb(level.sky[2]);
+    const fogFar = level.fogFar;
+    const cam3 = makeCam(cam.x, cam.y, cam.z, cam.heading, cam.pitch, cam.bank);
+    const frame = [...staticMesh, ...buildRings(world)];
+    for (const t of world.traffic) {
+      frame.push(...xformMesh(buildTrafficPlane(t.type), t.heading, 0, 0, t.x, t.y, t.z));
+    }
+    if (withJet) {
+      const st = world.state;
+      frame.push(...xformMesh(buildJet(), st.heading, st.pitch, st.bank, st.x, st.y, st.z));
+    }
+    renderTris(ctx, frame, cam3, sun, fogColor, fogFar, W, H, FOCAL, HORIZON_Y);
+  }
+
   function drawTitle(world, best) {
     const s = world.state;
     drawSky(world, s);
-    drawGround(world, s);
-    drawWaypoints(world, s);
-    drawProps(world, s);
+    drawWorld3D(world, s, false);
     drawCockpit(world, s);
     ctx.fillStyle = 'rgba(8,18,32,0.35)';
     ctx.fillRect(0, 0, W, H);
@@ -2265,33 +1056,27 @@ export function createRenderer(canvas) {
       return;
     }
     if (view === VIEW_TPP) {
-      // Chase camera, v4: three-quarter rear — 24 m to the starboard side
-      // and 42 m behind, looking back at the jet (~30° off the tail axis),
-      // so the jet shows its full profile like the FA-50 reference.
-      const side = 24;
-      const back = 42;
+      // Chase camera, v9: more lateral and lower than v4 (side 14, back
+      // 16, up 3 — ~22 m, ~41° off the tail axis), so the jet reads as a
+      // three-quarter SIDE profile like the FA-50 reference, not from above.
+      const side = 14;
+      const back = 16;
       const camX = s.x - Math.sin(s.heading) * back + Math.cos(s.heading) * side;
       const camZ = s.z - Math.cos(s.heading) * back - Math.sin(s.heading) * side;
       const cam = {
         x: camX,
-        y: s.y + 14,
+        y: s.y + 3,
         z: camZ,
         heading: Math.atan2(s.x - camX, s.z - camZ),
         pitch: s.pitch - 0.06,
         bank: s.bank * 0.35,
         time: s.time,
-        tpp: true, // chase view: traffic occluded by the hero jet is skipped
+        tpp: true,
       };
       drawSky(world, cam);
-      drawGround(world, cam);
-      drawRunway(world, cam);
-      drawClouds(world, cam);
-      drawProps(world, cam);
-      drawWaypoints(world, cam);
-      drawTraffic(world, cam);
+      drawWorld3D(world, cam, true);
       if (world.level.storm) drawRain(s);
       drawLightning(s);
-      drawJetTPP(world, s);
       drawHud(world, best, VIEW_TPP);
       ctx.fillStyle = 'rgba(8,18,32,0.55)';
       ctx.fillRect(CX - 150, H - 34, 300, 24);
@@ -2302,12 +1087,7 @@ export function createRenderer(canvas) {
       ctx.textAlign = 'left';
     } else {
       drawSky(world, s);
-      drawGround(world, s);
-      drawRunway(world, s);
-      drawClouds(world, s);
-      drawProps(world, s);
-      drawWaypoints(world, s);
-      drawTraffic(world, s);
+      drawWorld3D(world, s, false);
       if (world.level.storm) drawRain(s);
       drawLightning(s);
       drawCockpit(world, s);
