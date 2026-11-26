@@ -317,7 +317,7 @@ export function extrudePlanform(mesh, pts, yTop, yBot, cTop, cSide) {
   }
 }
 
-export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1, em = 0) {
+export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1, em = 0, bot = null, gd = null, sub = 0) {
   const phi = (1 + Math.sqrt(5)) / 2;
   const raw = [
     [-1, phi, 0], [1, phi, 0], [-1, -phi, 0], [1, -phi, 0],
@@ -334,8 +334,27 @@ export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1, em = 0) {
     [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
     [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
   ];
+  // bot: vertical gradient (bright top, shaded base) — the volume cue in
+  // every cloud reference. gd: [centreY, radius] of the WHOLE cluster, so
+  // the gradient runs across the cloud, not per puff — neighbouring faces
+  // shade almost alike: smooth, no facet lines.
+  const g = gd || [cy, r];
+  const emit = (a, b, cc) => {
+    const col = bot ? mix3(bot, c, sstep(-0.6, 0.5, ((v[a][1] + v[b][1] + v[cc][1]) / 3 - g[0]) / g[1])) : c;
+    tri(mesh, v[a][0], v[a][1], v[a][2], v[b][0], v[b][1], v[b][2], v[cc][0], v[cc][1], v[cc][2], col, alpha, em);
+  };
+  // sub: split each face into 4 at the sphere midpoints — 80 small faces
+  // instead of 20 big ones, so the gradient reads smooth, not crystalline.
+  const mid = (i, j) => {
+    const p = [(v[i][0] + v[j][0]) / 2 - cx, (v[i][1] + v[j][1]) / 2 - cy, (v[i][2] + v[j][2]) / 2 - cz];
+    const l = Math.hypot(p[0], p[1], p[2]) || 1;
+    v.push([cx + (p[0] / l) * r, cy + (p[1] / l) * r, cz + (p[2] / l) * r]);
+    return v.length - 1;
+  };
   for (const [a, b, cc] of faces) {
-    tri(mesh, v[a][0], v[a][1], v[a][2], v[b][0], v[b][1], v[b][2], v[cc][0], v[cc][1], v[cc][2], c, alpha, em);
+    if (!sub) { emit(a, b, cc); continue; }
+    const ab = mid(a, b); const bc = mid(b, cc); const ca = mid(cc, a);
+    emit(a, ab, ca); emit(ab, b, bc); emit(ca, bc, cc); emit(ab, bc, ca);
   }
 }
 
@@ -1056,20 +1075,33 @@ export function buildProps(world) {
   return mesh;
 }
 
-// Puff table [dx, dy, dz, scale, shade]: six overlapping puffs, bright
-// top and dark base, so a cloud reads as one 3D volume, not a flat hexagon.
-const PUFFS = [[0, 0, 0, 1, 0], [0.7, -0.18, 0.2, 0.6, -14], [-0.65, -0.12, -0.25, 0.55, -26], [0.25, 0.3, -0.05, 0.45, 6], [-0.3, 0.24, 0.18, 0.38, 2], [0.05, -0.3, 0.05, 0.7, -36]];
-function cloudPuffs(mesh, x, y, z, s, base, alpha) {
-  for (const p of PUFFS) icosahedron(mesh, x + p[0] * s, y + p[1] * s, z + p[2] * s, s * p[3], [base[0] + p[4], base[1] + p[4], base[2] + p[4]], alpha, 1); // em=1: no sun shading, so no facet lines — one soft white volume
+// Puff table [dx, dy, dz, scale, shade]: six overlapping puffs.
+const PUFFS = [[0, 0, 0, 1, 0], [0.7, -0.18, 0.2, 0.6, -14], [-0.65, -0.12, -0.25, 0.55, -26], [0.25, 0.3, -0.05, 0.45, 6], [-0.3, 0.24, 0.18, 0.38, 2], [0.05, -0.3, 0.05, 0.7, -36], [1.05, -0.05, 0.3, 0.42, -20], [-1.0, 0.05, -0.2, 0.45, -18], [0.15, 0.42, 0.1, 0.4, 10]];
+// Cloud styles (user-picked refs, one per shot): [w, h, sz, top, bot] —
+// w: horizontal spread, h: vertical stretch, sz: size, top/bot: the
+// vertical-gradient palette (bright top, shaded base = the volume cue).
+// 0 ref2 Unity ball · 1 ref3 MSFS deck · 2 ref4 Ace tower.
+const CSTY = [
+  [1, 1, 1.5, [250, 250, 253], [168, 178, 214]],
+  [2.4, 0.42, 2.2, [240, 244, 250], [150, 164, 196]],
+  [0.85, 1.9, 1.7, [255, 255, 255], [104, 112, 128]],
+];
+const CSTY_LVL = { 0: 0, 1: 0, 2: 1, 3: 2, 4: 1, 5: 0 };
+function cloudPuffs(mesh, x, y, z, s, st, alpha) {
+  for (const p of PUFFS) {
+    const b = p[4];
+    icosahedron(mesh, x + p[0] * st[0] * s, y + p[1] * st[1] * s, z + p[2] * st[0] * s, s * p[3], [st[3][0] + b, st[3][1] + b, st[3][2] + b], alpha, 1, [st[4][0] + b, st[4][1] + b, st[4][2] + b], [y, s], 1);
+  }
 }
 
 export function buildClouds(world) {
   const mesh = [];
   const H = world.terrainHeight.bind(world);
   const sunDir = (world.level.sun[0] - 0.5) * 2;
+  const st = CSTY[CSTY_LVL[world.level.id] ?? 0];
   for (const cloud of world.clouds) {
-    const s = cloud.s;
-    cloudPuffs(mesh, cloud.x, cloud.y, cloud.z, s, [246, 248, 251], 1);
+    const s = cloud.s * st[2];
+    cloudPuffs(mesh, cloud.x, cloud.y, cloud.z, s, st, 1);
     const groundH = H(cloud.x, cloud.z);
     const shX = cloud.x - sunDir * (cloud.y - groundH) * 0.45;
     const r = s * 1.5;
@@ -1077,7 +1109,7 @@ export function buildClouds(world) {
   }
   if (world.level.storm) {
     for (const cloud of world.stormClouds) {
-      cloudPuffs(mesh, cloud.x, cloud.y, cloud.z, cloud.s, [118, 126, 138], 0.9);
+      cloudPuffs(mesh, cloud.x, cloud.y, cloud.z, cloud.s * st[2], st, 0.9);
     }
   }
   return mesh;

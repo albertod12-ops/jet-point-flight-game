@@ -234,18 +234,48 @@ export function createWorld(random, levelIndex) {
       props.push({ x: p.x, z: p.z, kind: 'oak', s: random.range(0.8, 1.5) });
     }
   }
-  // Clouds drift above the route.
+  // Clouds drift above the route — but never ON it: a cloud dead-ahead
+  // of the camera fills the frame as one flat grey wall (v17 probe: the
+  // cover shot's blob sat 90 m ahead, 251 m off the route — the camera
+  // turns off the route line, so the clearance must exceed the turn).
+  // Push any cloud within 300 m of the route out to 380 m, same side.
+  // (Pure transform of already-drawn values: consumes no random, so the
+  // traffic/props stream — and the flight test — are untouched.)
+  function offRoute(x, z) {
+    let nx = x; let nz = z; let bd = 1e9;
+    for (let i = 0; i + 1 < routePoints.length; i += 1) {
+      const a = routePoints[i]; const b = routePoints[i + 1];
+      const dx = b.x - a.x; const dz = b.z - a.z; const l2 = dx * dx + dz * dz;
+      let t = l2 ? ((x - a.x) * dx + (z - a.z) * dz) / l2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const px = a.x + dx * t; const pz = a.z + dz * t;
+      const d = Math.hypot(x - px, z - pz);
+      if (d < bd) { bd = d; nx = px; nz = pz; }
+    }
+    if (bd >= 300) return [x, z];
+    const ox = x - nx || rightX; const oz = z - nz || rightZ;
+    const ol = Math.hypot(ox, oz);
+    return [nx + (ox / ol) * 380, nz + (oz / ol) * 380];
+  }
   const clouds = [];
   for (let i = 0; i < 26; i += 1) {
     const p = legToMap(random.range(-700, 700), random.range(200, WORLD.legLength + 900));
-    clouds.push({ x: p.x, y: random.range(240, 380), z: p.z, s: random.range(22, 55) });
+    const cp = offRoute(p.x, p.z);
+    clouds.push({ x: cp[0], y: random.range(240, 380), z: cp[1], s: random.range(22, 55) });
   }
-  // Storm clouds, lower and darker, for the storm leg.
+  // Two fixed clouds over the destination airport: the landing shot's
+  // camera sits inside the cleared corridor, so without these the final
+  // approach sky is empty. (Fixed offsets: no random draws.)
+  for (const [ox, oz, oy, os] of [[450, -350, 330, 40], [900, 420, 360, 34]]) {
+    const cp = offRoute(runwayB.x + ox, runwayB.z + oz);
+    clouds.push({ x: cp[0], y: oy, z: cp[1], s: os });
+  }
   const stormClouds = [];
   if (level.storm) {
     for (let i = 0; i < 18; i += 1) {
       const p = legToMap(random.range(-600, 600), random.range(300, WORLD.legLength + 600));
-      stormClouds.push({ x: p.x, y: random.range(150, 260), z: p.z, s: random.range(40, 90) });
+      const cp = offRoute(p.x, p.z);
+      stormClouds.push({ x: cp[0], y: random.range(150, 260), z: cp[1], s: random.range(40, 90) });
     }
   }
 
