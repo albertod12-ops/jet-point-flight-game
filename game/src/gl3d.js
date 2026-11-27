@@ -543,9 +543,8 @@ export function terrainFaceColor(world, wx, wz, h) {
     const f = runwayFrame(rw, wx, wz);
     const aa = Math.abs(f.along);
     const ax = Math.abs(f.across);
-    if (aa < 450 && ax < 13) return shadeArr([88, 88, 92], 1 + mot * 0.05);
+    if (aa < 580 && ax < 13) return shadeArr([88, 88, 92], 1 + mot * 0.05); // strip underlay incl. former overrun
     if (aa < 450 && f.across > 38 && f.across < 52) return shadeArr([66, 66, 70], 1 + mot * 0.06);
-    if (aa >= 450 && aa < 520 && ax < 13) return shadeArr([70, 70, 74], 1 + mot * 0.05);
     if (aa < 450 && ax >= 11 && ax < 17) {
       const g = mix3([54, 54, 58], [98, 152, 82], sstep(14, 17, ax));
       return shadeArr(g, 1 + mot * 0.06);
@@ -556,7 +555,7 @@ export function terrainFaceColor(world, wx, wz, h) {
     const wv = Math.sin((wx * 0.021 + wz * 0.013) + mot * 2.4);
     const sp = Math.max(0, vnoise2(wx * 0.09, wz * 0.09) - 0.45) * 0.35;
     const sb = level.storm ? [30, 88, 132] : [40, 118, 178];
-    let c = shadeArr(sb, Math.max(0.95, 1 + fine * 0.05 + mot * 0.10 + wv * 0.07 + sp));
+    let c = shadeArr(sb, Math.max(0.97, 1 + fine * 0.05 + mot * 0.06 + wv * 0.04 + sp));
     if (h > 0.5) {
       const isl = islandAt(wx, wz);
       const rr = isl.d / isl.island.r;
@@ -677,7 +676,7 @@ export function buildTerrain(world) {
   const nu = Math.round((u1 - u0) / step);
   const nv = Math.round((v1 - v0) / step);
   const H = world.terrainHeight.bind(world);
-  const mAlong = 480 + step;
+  const mAlong = 540 + step;
   const mAcross = 55 + step;
   const flattenH = (x, z, h) => {
     for (const rw of [world.runwayA, world.runwayB]) {
@@ -839,42 +838,37 @@ export function buildRunway(world) {
     const local = [];
     const y = 6.5;
     const motAt = (lx, lz) => mottle(rw.x + lx * 0.9 + 13, rw.z + lz * 0.9 - 7);
-    for (let s = 0; s < 15; s += 1) {
-      const z0 = -450 + s * 60;
+    for (let s = 0; s < 18; s += 1) {
+      const z0 = -570 + s * 60;
       const z1 = z0 + 60;
       const zm = (z0 + z1) / 2;
       const dThr = Math.min(Math.abs(zm + 450), Math.abs(zm - 450));
-      const td = 1 - 0.18 * (1 - sstep(120, 280, dThr));
+      const td = 1 - 0.08 * (1 - sstep(120, 280, dThr));
       const m = 1 + motAt(0, zm) * 0.07;
       quad(local, -11, y, z0, -11, y, z1, 11, y, z1, 11, y, z0, shadeArr([72, 72, 76], td * m));
       quad(local, -3.5, y + 0.05, z0, -3.5, y + 0.05, z1, 3.5, y + 0.05, z1, 3.5, y + 0.05, z0, shadeArr([60, 60, 64], td * (1 + motAt(0, zm) * 0.08)));
     }
-    quad(local, -10.6, y + 0.15, -450, -10.6, y + 0.15, 450, -9.4, y + 0.15, 450, -9.4, y + 0.15, -450, [238, 238, 232]);
-    quad(local, 9.4, y + 0.15, -450, 9.4, y + 0.15, 450, 10.6, y + 0.15, 450, 10.6, y + 0.15, -450, [238, 238, 232]);
+    quad(local, -10.6, y + 0.15, -570, -10.6, y + 0.15, 510, -9.4, y + 0.15, 510, -9.4, y + 0.15, -570, [238, 238, 232]);
+    quad(local, 9.4, y + 0.15, -570, 9.4, y + 0.15, 510, 10.6, y + 0.15, 510, 10.6, y + 0.15, -570, [238, 238, 232]);
     for (const az of [-150, 150]) {
       quad(local, -11, y + 0.2, az - 11, -11, y + 0.2, az + 11, -4, y + 0.2, az + 11, -4, y + 0.2, az - 11, [240, 240, 235]);
       quad(local, 4, y + 0.2, az - 11, 4, y + 0.2, az + 11, 11, y + 0.2, az + 11, 11, y + 0.2, az - 11, [240, 240, 235]);
     }
-    for (const pz of [-480, 480]) {
-      const z0 = pz < 0 ? -510 : 450;
-      const z1 = pz < 0 ? -450 : 510;
-      quad(local, -11, y, z0, -11, y, z1, 11, y, z1, 11, y, z0, shadeArr([70, 70, 74], 1 + motAt(0, pz) * 0.06));
-    }
     for (let s = 0; s < 3; s += 1) {
-      const z0 = -450 + s * 300;
-      const z1 = z0 + 300;
+      const z0 = -570 + s * 360;
+      const z1 = z0 + 360;
       const m = 1 + motAt(14, (z0 + z1) / 2) * 0.06;
       quad(local, -17, y - 0.05, z0, -17, y - 0.05, z1, -11, y - 0.05, z1, -11, y - 0.05, z0, shadeArr([54, 54, 58], m));
       quad(local, 11, y - 0.05, z0, 11, y - 0.05, z1, 17, y - 0.05, z1, 17, y - 0.05, z0, shadeArr([54, 54, 58], m));
     }
-    quad(local, 38, y - 0.1, -450, 38, y - 0.1, 450, 52, y - 0.1, 450, 52, y - 0.1, -450, [64, 64, 68]);
+    quad(local, 38, y - 0.1, -570, 38, y - 0.1, 510, 52, y - 0.1, 510, 52, y - 0.1, -570, [64, 64, 68]);
     for (const cz of [-200, 200]) {
       quad(local, 11, y, cz - 6, 11, y, cz + 6, 38, y, cz + 6, 38, y, cz - 6, [64, 64, 68]);
       for (let cx = 16; cx <= 34; cx += 9) {
         quad(local, cx - 2.5, y + 0.1, cz - 0.7, cx - 2.5, y + 0.1, cz + 0.7, cx + 2.5, y + 0.1, cz + 0.7, cx + 2.5, y + 0.1, cz - 0.7, [232, 196, 60]);
       }
     }
-    for (let z = -450 + 40; z < 450 - 30; z += 62) {
+    for (let z = -570 + 40; z < 510 - 30; z += 62) {
       quad(local, 44.4, y + 0.1, z - 13, 44.4, y + 0.1, z + 13, 45.6, y + 0.1, z + 13, 45.6, y + 0.1, z - 13, [232, 196, 60]);
     }
     for (const tz of [-450 + 22, 450 - 22]) {
@@ -882,7 +876,7 @@ export function buildRunway(world) {
         quad(local, i * 4.2 - 1.3, y + 0.2, tz - 13, i * 4.2 - 1.3, y + 0.2, tz + 13, i * 4.2 + 1.3, y + 0.2, tz + 13, i * 4.2 + 1.3, y + 0.2, tz - 13, [245, 245, 240]);
       }
     }
-    for (let z = -450 + 70; z < 450 - 50; z += 62) {
+    for (let z = -570 + 70; z < 510 - 50; z += 62) {
       quad(local, -2.0, y + 0.2, z - 13, -2.0, y + 0.2, z + 13, 2.0, y + 0.2, z + 13, 2.0, y + 0.2, z - 13, [245, 245, 240]);
     }
     const [n, rec] = runwayNumber(rw.heading);
@@ -894,23 +888,7 @@ export function buildRunway(world) {
     };
     digits(n, -418, 0);
     digits(rec, 418, Math.PI);
-    const bar = (x0, z0, x1, z1, w, col) => {
-      const dx = x1 - x0;
-      const dz = z1 - z0;
-      const len = Math.hypot(dx, dz) || 1;
-      const px = (-dz / len) * (w / 2);
-      const pz = (dx / len) * (w / 2);
-      quad(local, x0 - px, y + 0.2, z0 - pz, x0 + px, y + 0.2, z0 + pz, x1 + px, y + 0.2, z1 + pz, x1 - px, y + 0.2, z1 - pz, col);
-    };
-    for (const cz of [-466, 466]) {
-      const dir = cz < 0 ? 1 : -1;
-      for (let i = 0; i < 3; i += 1) {
-        const z = cz + dir * i * 9;
-        bar(0, z, -8, z + dir * 7, 1.6, [232, 196, 60]);
-        bar(0, z, 8, z + dir * 7, 1.6, [232, 196, 60]);
-      }
-    }
-    for (let z = -450; z <= 450; z += 90) {
+    for (let z = -570; z <= 510; z += 90) {
       for (const ex of [-11, 11]) {
         quad(local, ex - 0.8, y + 0.4, z - 0.8, ex - 0.8, y + 0.4, z + 0.8, ex + 0.8, y + 0.4, z + 0.8, ex + 0.8, y + 0.4, z - 0.8, [255, 255, 255], 1, 1);
       }
@@ -1148,7 +1126,8 @@ export function buildClouds(world) {
     const groundH = H(cloud.x, cloud.z);
     const shX = cloud.x - sunDir * (cloud.y - groundH) * 0.45;
     const r = s * 1.5;
-    quad(mesh, shX - r, groundH + 2, cloud.z - r * 0.42, shX - r, groundH + 2, cloud.z + r * 0.42, shX + r, groundH + 2, cloud.z + r * 0.42, shX + r, groundH + 2, cloud.z - r * 0.42, [30, 48, 68], 0.10);
+    const sh = (k, a) => quad(mesh, shX - r * k, groundH + 2, cloud.z - r * 0.42 * k, shX - r * k, groundH + 2, cloud.z + r * 0.42 * k, shX + r * k, groundH + 2, cloud.z + r * 0.42 * k, shX + r * k, groundH + 2, cloud.z - r * 0.42 * k, [30, 48, 68], a);
+    sh(1.3, 0.02); sh(1, 0.04); // feathered shadow (was single 0.10 quad, read as sea facet)
   }
   if (world.level.storm) {
     for (const cloud of world.stormClouds) {
