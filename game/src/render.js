@@ -94,7 +94,7 @@ export function createRenderer(canvas) {
   function drawRidge(state, parallax, baseY, color, litColor, snow, sunLeft, horizonY) {
     const off = -state.heading * 900 * parallax - state.x * parallax * 0.4;
     const base = horizonY + 2;
-    const step = 22;
+    const step = 11;
     const pts = [];
     for (let x = -100; x <= W + 140; x += step) {
       const n1 = vnoise2((x + off) * 0.0035 + parallax * 31, parallax * 17);
@@ -104,18 +104,21 @@ export function createRenderer(canvas) {
       h = clamp(h, baseY * 0.04, baseY * 1.42);
       pts.push({ x, y: base - h });
     }
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, base);
+    for (const p of pts) ctx.lineTo(p.x, p.y);
+    ctx.lineTo(pts[pts.length - 1].x, base);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = litColor;
     for (let i = 0; i < pts.length - 1; i += 1) {
       const a = pts[i];
       const b = pts[i + 1];
       const slope = (b.y - a.y) / (b.x - a.x);
       const facesLeft = slope < 0;
-      const lit = sunLeft ? facesLeft : !facesLeft;
-      const top = lit ? litColor : color;
-      const g = ctx.createLinearGradient(0, Math.min(a.y, b.y), 0, base);
-      g.addColorStop(0, top);
-      g.addColorStop(0.7, top);
-      g.addColorStop(1, hexA(top, 0));
-      ctx.fillStyle = g;
+      if ((sunLeft ? facesLeft : !facesLeft) === false) continue;
       ctx.beginPath();
       ctx.moveTo(a.x, base);
       ctx.lineTo(a.x, a.y);
@@ -124,6 +127,7 @@ export function createRenderer(canvas) {
       ctx.closePath();
       ctx.fill();
     }
+    ctx.globalAlpha = 1;
     ctx.strokeStyle = 'rgba(220,232,226,0.25)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -142,7 +146,7 @@ export function createRenderer(canvas) {
         const sx = a.x + 3 + k * 7 + hx * 5;
         const sy = midY + 6 + hash2(Math.floor(sx * 3), 11) * depth * 0.62;
         const sr = 1.4 + hash2(Math.floor(sx * 5), 23) * 2.4;
-        ctx.fillStyle = 'rgba(16,34,22,0.32)';
+        ctx.fillStyle = 'rgba(16,34,22,0.18)';
         ctx.beginPath();
         ctx.arc(sx, sy, sr, 0, Math.PI * 2);
         ctx.fill();
@@ -155,7 +159,7 @@ export function createRenderer(canvas) {
       if (hx < 0.86) continue;
       const midY = (a.y + b.y) / 2;
       const rx = (a.x + b.x) / 2;
-      ctx.fillStyle = 'rgba(196,198,190,0.30)';
+      ctx.fillStyle = 'rgba(196,198,190,0.18)';
       ctx.beginPath();
       ctx.moveTo(rx - 7, midY + 4);
       ctx.lineTo(rx - 2, midY - 2);

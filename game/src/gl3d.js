@@ -461,15 +461,15 @@ export function terrainFaceColor(world, wx, wz, h) {
     if (high < 60 && dr < 45) {
       const dw = dr + 7 * vnoise2(wx * 0.0025 + 9, wz * 0.0025 - 4);
       const w = 16 + 14 * (0.5 + 0.5 * vnoise2(wx * 0.002 + 3, wz * 0.002 - 7));
-      const river = 1 - sstep(w, w + 8, dw);
-      const bank = (1 - sstep(w + 5, w + 11, dw)) * (1 - river);
+      const river = 1 - sstep(w, w + 26, dw);
+      const bank = (1 - sstep(w + 5, w + 29, dw)) * (1 - river);
       c = mix3(c, shadeArr([198, 186, 140], light), bank);
       c = mix3(c, shadeArr([64, 128, 148], light * (1 + fine * 0.06)), river);
     }
     return c;
   }
   const lakeD = Math.hypot(wx - MAP.lake.x, wz - MAP.lake.z);
-  const lake = 1 - sstep(lakeR(wx, wz) - 30, lakeR(wx, wz) + 30, lakeD);
+  const lake = 1 - sstep(lakeR(wx, wz) - 70, lakeR(wx, wz) + 70, lakeD);
   const patch = vnoise2(wx * 0.006 + 31, wz * 0.006 + 11);
   const patchB = vnoise2(wx * 0.0035 - 17, wz * 0.0035 + 29);
   const w1 = sstep(-0.55, -0.05, patchB);
@@ -489,8 +489,8 @@ export function terrainFaceColor(world, wx, wz, h) {
   if (dr < 45) {
     const dw = dr + 7 * vnoise2(wx * 0.0025 + 9, wz * 0.0025 - 4);
     const w = 16 + 14 * (0.5 + 0.5 * vnoise2(wx * 0.002 + 3, wz * 0.002 - 7));
-    const river = 1 - sstep(w, w + 8, dw);
-    const bank = (1 - sstep(w + 5, w + 11, dw)) * (1 - river);
+    const river = 1 - sstep(w, w + 26, dw);
+    const bank = (1 - sstep(w + 5, w + 29, dw)) * (1 - river);
     base = mix3(base, shadeArr([198, 186, 140], 1), bank);
     base = mix3(base, shadeArr([64, 128, 148], 1 + fine * 0.06), river);
   }
