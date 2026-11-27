@@ -4,7 +4,7 @@
 // ~500-triangle model, 3D rings.
 import { FIELD, FOCAL, HORIZON_Y } from './config.js';
 import {
-  makeCam, renderTris, xformMesh, buildJet, buildTerrain, buildRunway,
+  makeCam, renderTris, xformMesh, buildJet, buildTerrain, buildFarTerrain, buildRunway,
   buildProps, buildClouds, buildRings, buildTrafficPlane,
 } from './gl3d.js';
 
@@ -94,7 +94,7 @@ export function createRenderer(canvas) {
       sea: [['rgba(70,88,88,0.8)', 'rgba(116,134,132,0.8)'], ['rgba(52,68,68,0.88)', 'rgba(92,110,108,0.88)'], ['rgba(36,50,50,0.92)', 'rgba(70,88,86,0.92)']],
       beach: [['rgba(110,128,88,0.8)', 'rgba(168,178,132,0.8)'], ['rgba(84,102,64,0.88)', 'rgba(138,150,104,0.88)'], ['rgba(60,78,46,0.92)', 'rgba(108,122,80,0.92)']],
     };
-    const ridgePal = ridgePalettes[level.ridge] || [['rgba(206,222,236,0.8)', 'rgba(236,244,250,0.8)'], ['rgba(178,198,220,0.88)', 'rgba(222,234,244,0.88)'], ['rgba(150,172,198,0.92)', 'rgba(204,220,236,0.92)']];
+    const ridgePal = ridgePalettes[level.ridge] || [['rgba(206,222,236,0.8)', 'rgba(236,244,250,0.8)'], ['rgba(168,190,214,0.88)', 'rgba(216,230,242,0.88)'], ['rgba(126,150,180,0.92)', 'rgba(184,204,228,0.92)']];
     const horizonY = HORIZON_Y + FOCAL * Math.sin(state.pitch);
     ctx.save();
     ctx.translate(CX, horizonY);
@@ -104,14 +104,14 @@ export function createRenderer(canvas) {
     drawRidge(state, 0.1, 130, ridgePal[0][0], ridgePal[0][1], false, sunLeft, horizonY);
     drawRidge(state, 0.24, 88, ridgePal[1][0], ridgePal[1][1], false, sunLeft, horizonY);
     drawRidge(state, 0.45, 52, ridgePal[2][0], ridgePal[2][1], false, sunLeft, horizonY);
-    const hz = level.groundFog < 0.5 ? 0.6 : 0.16; // L1 morning haze: wash the ridge green out of the cover shot
-    const haze = ctx.createLinearGradient(0, horizonY - 160, 0, horizonY + 34);
+    const hz = level.groundFog < 0.5 ? 0.45 : 0.16; // L1 morning haze: wash the ridge green out of the cover shot
+    const haze = ctx.createLinearGradient(0, horizonY - 115, 0, horizonY + 34);
     haze.addColorStop(0, 'rgba(226,232,238,0)');
     haze.addColorStop(0.25, `rgba(226,232,238,${hz})`);
     haze.addColorStop(0.75, `rgba(226,232,238,${hz})`);
     haze.addColorStop(1, 'rgba(226,232,238,0)');
     ctx.fillStyle = haze;
-    ctx.fillRect(0, horizonY - 160, W, 194);
+    ctx.fillRect(0, horizonY - 115, W, 149);
     ctx.restore();
   }
 
@@ -124,8 +124,8 @@ export function createRenderer(canvas) {
       const n1 = vnoise2((x + off) * 0.0035 + parallax * 31, parallax * 17);
       const n2 = vnoise2((x + off) * 0.011 + parallax * 47, parallax * 29);
       const n3 = vnoise2((x + off) * 0.028 + parallax * 71, parallax * 41);
-      let h = baseY * (0.30 + 0.52 * n1 + 0.20 * n2 + 0.08 * n3);
-      h = clamp(h, baseY * 0.10, baseY * 1.30);
+      let h = baseY * (0.30 + 0.52 * n1 + (0.10 + 0.28 * parallax) * n2 + (0.03 + 0.14 * parallax) * n3);
+      h = clamp(h, baseY * 0.04, baseY * 1.42);
       pts.push({ x, y: base - h });
     }
     for (let i = 0; i < pts.length - 1; i += 1) {
@@ -845,6 +845,7 @@ export function createRenderer(canvas) {
     if (!staticMesh) {
       staticMesh = [
         ...buildTerrain(world),
+        ...buildFarTerrain(world),
         ...buildRunway(world),
         ...buildProps(world),
         ...buildClouds(world),

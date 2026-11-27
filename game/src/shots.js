@@ -96,16 +96,7 @@ export function stageShot(name, world) {
     return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'FPP' };
   }
   if (name === 'tpp') {
-    // Chase view mid-route: the 3D jet in frame over the mountain leg
-    // (Alpine Pass, blue sky + green mountains — ref 1). Fly until the
-    // next ring sits near the centre of the frame (300–900 m out, within
-    // ~15° of the heading), capped at 70 s, so the ring + label read
-    // dead ahead instead of off to one side (v5's ring sat right-of-centre).
-    // v7: bank < 0.10 — the hero jet is LEVEL in the frame (ref 1), so the
-    // frame must be nearly level too (the world tilt carries the turn).
-    // v10: only break once the next ring is the 5th or later — the
-    // first render broke at ring 1, still over the city/fields, and the
-    // shot showed no mountains at all.
+    // Chase view mid-route: break once ring 5+ sits near frame centre.
     const aim = aimAtNextRing(world);
     const limit = Math.floor(70 / SAMPLE);
     for (let i = 0; i < limit; i += 1) {

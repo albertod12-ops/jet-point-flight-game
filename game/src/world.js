@@ -241,7 +241,7 @@ export function createWorld(random, levelIndex) {
   // Push any cloud within 300 m of the route out to 380 m, same side.
   // (Pure transform of already-drawn values: consumes no random, so the
   // traffic/props stream — and the flight test — are untouched.)
-  function offRoute(x, z) {
+  function offRoute(x, z, push = 380) {
     let nx = x; let nz = z; let bd = 1e9;
     for (let i = 0; i + 1 < routePoints.length; i += 1) {
       const a = routePoints[i]; const b = routePoints[i + 1];
@@ -255,7 +255,7 @@ export function createWorld(random, levelIndex) {
     if (bd >= 300) return [x, z];
     const ox = x - nx || rightX; const oz = z - nz || rightZ;
     const ol = Math.hypot(ox, oz);
-    return [nx + (ox / ol) * 380, nz + (oz / ol) * 380];
+    return [nx + (ox / ol) * push, nz + (oz / ol) * push];
   }
   const clouds = [];
   for (let i = 0; i < 26; i += 1) {
@@ -287,14 +287,16 @@ export function createWorld(random, levelIndex) {
   if (level.storm) {
     for (let i = 0; i < 18; i += 1) {
       const p = legToMap(random.range(-600, 600), random.range(300, WORLD.legLength + 600));
-      const cp = offRoute(p.x, p.z);
-      stormClouds.push({ x: cp[0], y: random.range(150, 260), z: cp[1], s: random.range(40, 55) });
+      const cp = offRoute(p.x, p.z, 520);
+      const cy = random.range(190, 290); const cs = random.range(34, 46);
+      if (i % 3 === 2) continue; // thin the wall: keep 12 of 18, stream untouched
+      stormClouds.push({ x: cp[0], y: cy, z: cp[1], s: cs });
     }
     // v19: storm was a wall in v18 — 14 extra -> 6, s capped 40-70.
     for (let i = 0; i < 6; i += 1) {
       const p = legToMap(cr.range(-750, 750), cr.range(300, WORLD.legLength + 600));
-      const cp = offRoute(p.x, p.z);
-      stormClouds.push({ x: cp[0], y: cr.range(150, 260), z: cp[1], s: cr.range(40, 55) });
+      const cp = offRoute(p.x, p.z, 520);
+      stormClouds.push({ x: cp[0], y: cr.range(190, 290), z: cp[1], s: cr.range(34, 46) });
     }
   }
 

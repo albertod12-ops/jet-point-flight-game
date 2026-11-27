@@ -46,7 +46,7 @@ export const LEVELS = [
     sky: ['#4a7ec2', '#8fb4d8', '#d7e8f5'], sun: [0.82, 80], ridge: 'mountain',
     start: [-150, 250], heading: Math.PI / 4, strip: 'Alpine Strip',
     wind: 12, gust: 16, storm: false, traffic: 7, weave: 480, ceiling: 380,
-    time: 330, fogFar: 2200, groundFog: 1.4, ringBase: 150,
+    time: 330, fogFar: 2200, groundFog: 2.2, ringBase: 150,
     note: 'Peaks on both sides. The gusts will shove you — correct.',
   },
   {

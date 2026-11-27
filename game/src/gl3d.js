@@ -137,7 +137,8 @@ export function renderTris(ctx, tris, cam, sun, fogRGB, fogFar, W, H, FOCAL, HOR
       }
       let shade = 1;
       if (t[16] !== 1 && (nx !== 0 || ny !== 0 || nz !== 0)) {
-        shade = 0.80 + 0.28 * Math.max(0, nx * sun[0] + ny * sun[1] + nz * sun[2]);
+        const dl = Math.max(0, nx * sun[0] + ny * sun[1] + nz * sun[2]);
+        shade = t[17] ? 0.94 + 0.10 * dl : 0.80 + 0.28 * dl;
       }
       const tf = t[17] ? terrainFogFar : fogFar;
       // v20: tris carrying per-vertex colours (clouds) are filled with a
@@ -612,7 +613,10 @@ export function terrainFaceColor(world, wx, wz, h) {
       const edge = clamp(0.5 + patch * 0.9, 0, 1);
       c = shadeArr(mix3(field, [122, 152, 92], edge * 0.6), light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
     } else if (high > 118) {
-      c = shadeArr(mix3([232, 238, 244], [246, 248, 250], sstep(-0.1, 0.3, patch)), light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
+      const sh2 = sstep(-0.2, 0.4, vnoise2(wx * 0.003 - 5, wz * 0.003 + 13));
+      const br2 = sstep(0.35, 0.7, vnoise2(wx * 0.009 + 19, wz * 0.009 - 11));
+      const snw = mix3(mix3([232, 238, 244], [246, 248, 250], sstep(-0.1, 0.3, patch)), [202, 216, 232], sh2 * 0.55);
+      c = shadeArr(mix3(snw, [252, 252, 253], br2 * 0.4), light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
     } else {
       const forest = mix3([96, 146, 86], [84, 132, 80], sstep(-0.2, 0.2, patch));
       const fine2 = vnoise2(wx * 0.008 + 3, wz * 0.008 - 8);
@@ -766,6 +770,20 @@ export function buildTerrain(world) {
     }
   }
   return mesh;
+}
+
+export function buildFarTerrain(w) {
+  const m = [], L = w.leg, H = w.terrainHeight.bind(w);
+  const P = (u, v) => ({ x: L.startX + u * L.rightX + v * L.dirX, z: L.startZ + u * L.rightZ + v * L.dirZ });
+  for (let j = 0; j < 9; j++) for (let i = 0; i < 8; i++) for (const s of [-1, 1]) {
+    const u0 = s > 0 ? 1100 + i * 500 : -1600 - i * 500, v0 = 3000 + j * 500;
+    const a = P(u0, v0), b = P(u0 + 500, v0), c = P(u0, v0 + 500), d = P(u0 + 500, v0 + 500);
+    const q = P(u0 + 250, v0 + 250), ch = (H(a.x, a.z) + H(b.x, b.z) + H(c.x, c.z) + H(d.x, d.z)) / 4;
+    const col = terrainFaceColor(w, q.x, q.z, ch);
+    tri(m, a.x, H(a.x, a.z), a.z, c.x, H(c.x, c.z), c.z, d.x, H(d.x, d.z), d.z, col, 1, 1, 1);
+    tri(m, a.x, H(a.x, a.z), a.z, d.x, H(d.x, d.z), d.z, b.x, H(b.x, b.z), b.z, col, 1, 1, 1);
+  }
+  return m;
 }
 
 function runwayNumber(heading) {
