@@ -1,16 +1,7 @@
-// Canvas 2D renderer v9: FIRST-PERSON glass cockpit (737-style) + TPP chase
-// view. The pilot sits inside the jet: a layered flight deck below —
-// glareshield with MCP, six glass screens (PFD / ND / EICAS / standby),
-// centre pedestal with throttle quadrant and CDU, yokes — and the route,
-// traffic and weather ahead through the windshield. C/V toggles to a chase
-// view. v9: the world is REAL 3D — a custom software renderer (gl3d.js)
-// builds the terrain as a heightmap mesh, the city as low-poly 3D boxes,
-// the FA-50 as a ~500-triangle model (Sketchfab KAI FA-50 Golden Eagle
-// hero render for the wing planform + LERX; the user's own FA-50 photos
-// for the level three-quarter profile, plain grey), and the rings as 3D
-// annuli you fly through. The map is GTA-low: flat-shaded low-poly city,
-// coastline, mountains, desert. The cockpit (APPROVED by the user, v7)
-// and the HUD are untouched 2D overlays.
+// Canvas 2D renderer: FIRST-PERSON glass cockpit (737-style) + TPP chase
+// view (C/V toggles). The world is REAL 3D — custom software renderer
+// (gl3d.js): terrain heightmap mesh, low-poly 3D city boxes, FA-50
+// ~500-triangle model, 3D rings.
 import { FIELD, FOCAL, HORIZON_Y } from './config.js';
 import {
   makeCam, renderTris, xformMesh, buildJet, buildTerrain, buildRunway,
@@ -63,6 +54,11 @@ function darkRgba(rgba, f) {
   if (!m) return rgba;
   return `rgba(${Math.round(m[1] * f)},${Math.round(m[2] * f)},${Math.round(m[3] * f)},${m[4]})`;
 }
+function hexA(hex, a) {
+  const m = /#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex);
+  if (!m) return hex;
+  return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${a})`;
+}
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
@@ -82,15 +78,16 @@ export function createRenderer(canvas) {
     ctx.fillRect(0, 0, W, H);
     const sunX = W * level.sun[0];
     const sunY = level.sun[1];
-    const halo = ctx.createRadialGradient(sunX, sunY, 8, sunX, sunY, 130);
+    const lowSun = sunY > 100;
+    const halo = ctx.createRadialGradient(sunX, sunY, 8, sunX, sunY, lowSun ? 210 : 130);
     halo.addColorStop(0, 'rgba(255,244,190,0.95)');
     halo.addColorStop(0.35, 'rgba(255,230,150,0.5)');
     halo.addColorStop(1, 'rgba(255,230,150,0)');
     ctx.fillStyle = halo;
-    ctx.fillRect(sunX - 140, sunY - 140, 280, 280);
+    ctx.fillRect(sunX - (lowSun ? 220 : 140), sunY - (lowSun ? 220 : 140), lowSun ? 440 : 280, lowSun ? 440 : 280);
     ctx.fillStyle = '#fff6c8';
     ctx.beginPath();
-    ctx.arc(sunX, sunY, 30, 0, Math.PI * 2);
+    ctx.arc(sunX, sunY, lowSun ? 42 : 30, 0, Math.PI * 2);
     ctx.fill();
     const ridgePalettes = {
       desert: [['rgba(122,84,58,0.8)', 'rgba(178,128,88,0.8)'], ['rgba(96,64,44,0.88)', 'rgba(150,102,66,0.88)'], ['rgba(72,46,32,0.92)', 'rgba(122,80,52,0.92)']],
@@ -127,8 +124,8 @@ export function createRenderer(canvas) {
       const n1 = vnoise2((x + off) * 0.0035 + parallax * 31, parallax * 17);
       const n2 = vnoise2((x + off) * 0.011 + parallax * 47, parallax * 29);
       const n3 = vnoise2((x + off) * 0.028 + parallax * 71, parallax * 41);
-      let h = baseY * (0.42 + 0.38 * n1 + 0.16 * n2 + 0.07 * n3);
-      h = clamp(h, baseY * 0.12, baseY * 1.12);
+      let h = baseY * (0.30 + 0.52 * n1 + 0.20 * n2 + 0.08 * n3);
+      h = clamp(h, baseY * 0.10, baseY * 1.30);
       pts.push({ x, y: base - h });
     }
     for (let i = 0; i < pts.length - 1; i += 1) {
@@ -140,7 +137,8 @@ export function createRenderer(canvas) {
       const top = lit ? litColor : color;
       const g = ctx.createLinearGradient(0, Math.min(a.y, b.y), 0, base);
       g.addColorStop(0, top);
-      g.addColorStop(1, darkRgba(top, 0.55));
+      g.addColorStop(0.7, top);
+      g.addColorStop(1, hexA(top, 0));
       ctx.fillStyle = g;
       ctx.beginPath();
       ctx.moveTo(a.x, base);
@@ -980,13 +978,13 @@ export function createRenderer(canvas) {
       return;
     }
     if (view === VIEW_TPP) {
-      const side = 16;
-      const back = 20;
+      const side = 11;
+      const back = 14;
       const camX = s.x - Math.sin(s.heading) * back + Math.cos(s.heading) * side;
       const camZ = s.z - Math.cos(s.heading) * back - Math.sin(s.heading) * side;
       const cam = {
         x: camX,
-        y: s.y + 4,
+        y: s.y + 3,
         z: camZ,
         heading: Math.atan2(s.x - camX, s.z - camZ),
         pitch: s.pitch + 0.02,

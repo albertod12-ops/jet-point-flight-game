@@ -1,21 +1,6 @@
-// THE ONE MAP — Jet Point v10 (user 20:40 WIB 26 Nov).
-// One GTA-style map for ALL five legs, like GTA V (Los Santos + Blaine
-// County): a city, a beach + open sea with islands, forested mountains,
-// desert and rolling countryside, all in ONE coherent place. The five legs
-// are five ROUTES inside this map (each starts at the main airport and
-// lands on a strip in another district) — never five separate worlds.
-//
-// Everything here is seed-independent (integer-hash noise, fixed islands,
-// fixed districts), so the map is literally the same place every time.
-// Units are metres; +z is north, +x is east, heading is atan2(dx, dz).
-//
-// Map sketch (airport at the origin, city around it):
-//   north: fields, then a forested mountain range (far north + NE sector)
-//   west:  beach, then open sea with islands (leg 2 + leg 3 fly there)
-//   east:  desert (leg 5 lands on the desert strip)
-//   centre: city around the airport, fields + a lake to the north-west
-//   leg 1 flies north over downtown to Metro Field; leg 4 flies north-east
-//   up the mountain valley to the Alpine strip.
+// THE ONE MAP — one GTA-style map for ALL five legs (five routes inside
+// it, never five worlds). Seed-independent (integer-hash noise, fixed
+// islands/districts). Units are metres; +z north, +x east.
 export const MAP = {
   // The main airport (runway A for every leg) sits at the origin.
   airport: { x: 0, z: 0 },

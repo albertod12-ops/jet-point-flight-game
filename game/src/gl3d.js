@@ -552,7 +552,10 @@ export function terrainFaceColor(world, wx, wz, h) {
     if (aa < 470 && ax < 72) return shadeArr([98, 152, 82], 1 + mot * 0.08 + fine * 0.04);
   }
   if (dist === 'sea') {
-    let c = shadeArr([40, 118, 178], 1 + fine * 0.05 + mot * 0.04);
+    const wv = Math.sin((wx * 0.021 + wz * 0.013) + mot * 2.4);
+    const sp = Math.max(0, vnoise2(wx * 0.09, wz * 0.09) - 0.45) * 0.35;
+    const sb = level.storm ? [30, 88, 132] : [40, 118, 178];
+    let c = shadeArr(sb, 1 + fine * 0.05 + mot * 0.10 + wv * 0.07 + sp);
     if (h > 0.5) {
       const isl = islandAt(wx, wz);
       const rr = isl.d / isl.island.r;
@@ -728,6 +731,20 @@ export function buildTerrain(world) {
     }
     blur.push(row);
   }
+  const vc = step > 50 ? [] : 0;
+  if (vc) for (let j = 0; j <= nv; j += 1) {
+    const row = [];
+    for (let i = 0; i <= nu; i += 1) {
+      let r = 0, g = 0, b = 0, n = 0;
+      for (let dj = -1; dj <= 0; dj += 1) for (let di = -1; di <= 0; di += 1) {
+        const jj = j + dj, ii = i + di;
+        if (jj < 0 || jj >= nv || ii < 0 || ii >= nu) continue;
+        const o = blur[jj][ii]; r += o[0]; g += o[1]; b += o[2]; n += 1;
+      }
+      row.push([r / n, g / n, b / n]);
+    }
+    vc.push(row);
+  }
   for (let j = 0; j < nv; j += 1) {
     for (let i = 0; i < nu; i += 1) {
       const p00 = toMap(u0 + i * step, v0 + j * step);
@@ -736,8 +753,10 @@ export function buildTerrain(world) {
       const p11 = toMap(u0 + (i + 1) * step, v0 + (j + 1) * step);
       const pc = toMap(u0 + (i + 0.5) * step, v0 + (j + 0.5) * step);
       const c = blur[j][i];
-      tri(mesh, p00.x, hv[j][i], p00.z, p01.x, hv[j + 1][i], p01.z, p11.x, hv[j + 1][i + 1], p11.z, c, 1, 0, 1);
-      tri(mesh, p00.x, hv[j][i], p00.z, p11.x, hv[j + 1][i + 1], p11.z, p10.x, hv[j][i + 1], p10.z, c, 1, 0, 1);
+      const q0 = vc ? [...vc[j][i], ...vc[j + 1][i], ...vc[j + 1][i + 1]] : 0;
+      const q1 = vc ? [...vc[j][i], ...vc[j + 1][i + 1], ...vc[j][i + 1]] : 0;
+      tri(mesh, p00.x, hv[j][i], p00.z, p01.x, hv[j + 1][i], p01.z, p11.x, hv[j + 1][i + 1], p11.z, c, 1, 0, 1, q0);
+      tri(mesh, p00.x, hv[j][i], p00.z, p11.x, hv[j + 1][i + 1], p11.z, p10.x, hv[j][i + 1], p10.z, c, 1, 0, 1, q1);
       const nx = -(H(pc.x + 120, pc.z) - H(pc.x - 120, pc.z)) / 240;
       const nz = -(H(pc.x, pc.z + 120) - H(pc.x, pc.z - 120)) / 240;
       const nl = Math.hypot(nx, 1, nz);

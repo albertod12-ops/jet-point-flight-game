@@ -118,7 +118,7 @@ export function stageShot(name, world) {
         let dh = Math.atan2(next.x - s.x, next.z - s.z) - s.heading;
         while (dh > Math.PI) dh -= Math.PI * 2;
         while (dh < -Math.PI) dh += Math.PI * 2;
-        if (d < 900 && d > 300 && Math.abs(dh) < 0.26 && Math.abs(s.bank) < 0.10) break;
+        if (d < 600 && d > 300 && Math.abs(dh) < 0.15 && Math.abs(s.bank) < 0.10) break;
       }
       const a = aim(s);
       const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);
@@ -148,7 +148,7 @@ export function stageShot(name, world) {
         let dh = Math.atan2(next.x - s.x, next.z - s.z) - s.heading;
         while (dh > Math.PI) dh -= Math.PI * 2;
         while (dh < -Math.PI) dh += Math.PI * 2;
-        if (d < 700 && d > 350 && Math.abs(dh) < 0.26 && Math.abs(s.bank) < 0.15) break;
+        if (d < 550 && d > 300 && Math.abs(dh) < 0.15 && Math.abs(s.bank) < 0.10) break;
       }
       const a = aim(s);
       const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);
@@ -157,13 +157,8 @@ export function stageShot(name, world) {
     return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'TPP' };
   }
   if (name === 'landing') {
-    // Full leg: waypoints, then the final approach — stop on final, 900 m
-    // out and still airborne, so the runway fills the frame ahead. The
-    // v10 first render flew all the way to touchdown and showed the
-    // LANDED game-over overlay instead of the approach; the second render
-    // still landed, because flyTo(400) runs the approach to touchdown
-    // once the rings are done — so the ring phase stops as soon as the
-    // last ring is threaded, and the approach is a separate loop.
+    // Full leg, then final approach — stop on final, 900 m out and still
+    // airborne, so the runway fills the frame ahead.
     const aim = aimAtNextRing(world);
     const ringLimit = Math.floor(400 / SAMPLE);
     for (let i = 0; i < ringLimit; i += 1) {
