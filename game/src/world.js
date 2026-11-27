@@ -288,7 +288,7 @@ export function createWorld(random, levelIndex) {
     for (let i = 0; i < 18; i += 1) {
       const p = legToMap(random.range(-600, 600), random.range(300, WORLD.legLength + 600));
       const cp = offRoute(p.x, p.z, 520);
-      const cy = random.range(190, 290); const cs = random.range(34, 46);
+      const cy = random.range(210, 310); const cs = random.range(30, 42);
       if (i % 3 === 2) continue; // thin the wall: keep 12 of 18, stream untouched
       stormClouds.push({ x: cp[0], y: cy, z: cp[1], s: cs });
     }
@@ -296,7 +296,7 @@ export function createWorld(random, levelIndex) {
     for (let i = 0; i < 6; i += 1) {
       const p = legToMap(cr.range(-750, 750), cr.range(300, WORLD.legLength + 600));
       const cp = offRoute(p.x, p.z, 520);
-      stormClouds.push({ x: cp[0], y: cr.range(190, 290), z: cp[1], s: cr.range(34, 46) });
+      stormClouds.push({ x: cp[0], y: cr.range(210, 310), z: cp[1], s: cr.range(30, 42) });
     }
   }
 

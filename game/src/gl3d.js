@@ -138,7 +138,7 @@ export function renderTris(ctx, tris, cam, sun, fogRGB, fogFar, W, H, FOCAL, HOR
       let shade = 1;
       if (t[16] !== 1 && (nx !== 0 || ny !== 0 || nz !== 0)) {
         const dl = Math.max(0, nx * sun[0] + ny * sun[1] + nz * sun[2]);
-        shade = t[17] ? 0.94 + 0.10 * dl : 0.80 + 0.28 * dl;
+        shade = t[17] ? 0.96 + 0.07 * dl : 0.80 + 0.28 * dl;
       }
       const tf = t[17] ? terrainFogFar : fogFar;
       // v20: tris carrying per-vertex colours (clouds) are filled with a
@@ -615,7 +615,7 @@ export function terrainFaceColor(world, wx, wz, h) {
     } else if (high > 118) {
       const sh2 = sstep(-0.2, 0.4, vnoise2(wx * 0.003 - 5, wz * 0.003 + 13));
       const br2 = sstep(0.35, 0.7, vnoise2(wx * 0.009 + 19, wz * 0.009 - 11));
-      const snw = mix3(mix3([232, 238, 244], [246, 248, 250], sstep(-0.1, 0.3, patch)), [202, 216, 232], sh2 * 0.55);
+      const snw = mix3(mix3([222, 230, 240], [246, 248, 250], sstep(-0.1, 0.3, patch)), [178, 196, 220], sh2 * 0.90);
       c = shadeArr(mix3(snw, [252, 252, 253], br2 * 0.4), light * (1 + mot * 0.08 + fine * 0.04 + grain * 0.03));
     } else {
       const forest = mix3([96, 146, 86], [84, 132, 80], sstep(-0.2, 0.2, patch));
