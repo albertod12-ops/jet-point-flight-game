@@ -1,27 +1,6 @@
-// gl3d.js — a tiny software 3D renderer (no dependencies, plain canvas 2D).
-//
-// REAL 3D, not a 2D drawing: vertices live in world space, a camera
-// transform (yaw/pitch/roll) puts them in camera space, Sutherland-Hodgman
-// clips triangles against the near plane, perspective divides them onto the
-// screen, and a painter's sort draws them far-to-near with flat sun shading
-// and distance fog. The output is a 2D projection of a 3D scene — which is
-// what all 3D rendering is — and it needs no WebGL (the screenshot pipeline
-// runs Chrome with --disable-gpu, and a 600 KB library would blow the
-// dossier's 160 KB source-text cap), so it works in every sandbox the entry
-// is graded in. Deterministic: no Math.random anywhere; all variation comes
-// from integer hashes, so the same world renders the same frame every run.
-//
-// The look is deliberately low-poly GTA: flat-shaded triangles, chunky
-// geometry, saturated colours — the style the user asked for ("mapnya versi
-// low dari gta"). A triangle is 17 numbers:
-//   [x1,y1,z1, x2,y2,z2, x3,y3,z3, r,g,b, a, nx,ny,nz, em]
-// (world-space vertices, base colour 0-255, alpha, precomputed unit normal,
-// em = 1 for emissive faces that skip sun shading).
-
-// Deterministic 2-D value noise from integer hashing (same as render.js —
-// duplicated here so this module is self-contained).
+// gl3d.js — world geometry: terrain, runway, props, clouds, rings, jet.
+// Triangle records: [x1,y1,z1,x2,y2,z2,x3,y3,z3, r,g,b, a, nx,ny,nz, em, tag, ...(vc)]
 import { MAP, coastX, district, distToRoute, forestAt, islandAt, lakeR } from './map.js';
-
 export function hash2(ix, iz) {
   let h = (ix * 374761393 + iz * 668265263) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -55,8 +34,6 @@ function sstep(a, b, v) {
   const t = clamp((v - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
 }
-
-// ---- camera -------------------------------------------------------------
 export function makeCam(x, y, z, heading, pitch, bank) {
   return {
     x, y, z,
@@ -65,7 +42,6 @@ export function makeCam(x, y, z, heading, pitch, bank) {
     sb: Math.sin(bank), cb: Math.cos(bank),
   };
 }
-
 export function toCam(cam, x, y, z) {
   const dx = x - cam.x;
   const dy = y - cam.y;
@@ -76,120 +52,6 @@ export function toCam(cam, x, y, z) {
   const up = -f * cam.sp + dy * cam.cp;
   return [r * cam.cb - up * cam.sb, r * cam.sb + up * cam.cb, fp];
 }
-
-// ---- near-plane clip ----------------------------------------------------
-const NEAR = 1.0; // metres; triangles closer than this are clipped away
-
-function clipNear(poly) {
-  const out = [];
-  const n = poly.length;
-  for (let i = 0; i < n; i += 1) {
-    const a = poly[i];
-    const b = poly[(i + 1) % n];
-    const aIn = a[2] >= NEAR;
-    const bIn = b[2] >= NEAR;
-    if (aIn) out.push(a);
-    if (aIn !== bIn) {
-      const t = (NEAR - a[2]) / (b[2] - a[2]);
-      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, NEAR]);
-    }
-  }
-  return out;
-}
-
-// ---- the render pass ----------------------------------------------------
-export function renderTris(ctx, tris, cam, sun, fogRGB, fogFar, W, H, FOCAL, HORIZON_Y, terrainFogFar = fogFar) {
-  const CX = W / 2;
-  const draw = []; // [sx1, sy1, sx2, sy2, sx3, sy3, depth, r, g, b, alpha]
-  const fogCut = fogFar * 1.3;
-  for (let ti = 0; ti < tris.length; ti += 1) {
-    const t = tris[ti];
-    const c1 = toCam(cam, t[0], t[1], t[2]);
-    const c2 = toCam(cam, t[3], t[4], t[5]);
-    const c3 = toCam(cam, t[6], t[7], t[8]);
-    if (c1[2] < NEAR && c2[2] < NEAR && c3[2] < NEAR) continue;
-    if (c1[2] > fogCut && c2[2] > fogCut && c3[2] > fogCut) continue;
-    let poly = clipNear([c1, c2, c3]);
-    if (poly.length < 3) continue;
-    for (let k = 1; k < poly.length - 1; k += 1) {
-      const a = poly[0];
-      const b = poly[k];
-      const c = poly[k + 1];
-      const sx1 = CX + (a[0] / a[2]) * FOCAL;
-      const sy1 = HORIZON_Y - (a[1] / a[2]) * FOCAL;
-      const sx2 = CX + (b[0] / b[2]) * FOCAL;
-      const sy2 = HORIZON_Y - (b[1] / b[2]) * FOCAL;
-      const sx3 = CX + (c[0] / c[2]) * FOCAL;
-      const sy3 = HORIZON_Y - (c[1] / c[2]) * FOCAL;
-      const area2 = (sx2 - sx1) * (sy3 - sy1) - (sy2 - sy1) * (sx3 - sx1);
-      if (area2 > -0.6 && area2 < 0.6) continue;
-      if ((sx1 < -80 && sx2 < -80 && sx3 < -80) || (sx1 > W + 80 && sx2 > W + 80 && sx3 > W + 80)
-        || (sy1 < -80 && sy2 < -80 && sy3 < -80) || (sy1 > H + 80 && sy2 > H + 80 && sy3 > H + 80)) continue;
-      const depth = (a[2] + b[2] + c[2]) / 3;
-      const nx = t[13];
-      const ny = t[14];
-      const nz = t[15];
-      if (nx !== 0 || ny !== 0 || nz !== 0) {
-        const mx = (t[0] + t[3] + t[6]) / 3 - cam.x;
-        const my = (t[1] + t[4] + t[7]) / 3 - cam.y;
-        const mz = (t[2] + t[5] + t[8]) / 3 - cam.z;
-        if (nx * mx + ny * my + nz * mz >= 0) continue;
-      }
-      let shade = 1;
-      if (t[16] !== 1 && (nx !== 0 || ny !== 0 || nz !== 0)) {
-        const dl = Math.max(0, nx * sun[0] + ny * sun[1] + nz * sun[2]);
-        shade = t[17] ? 0.96 + 0.07 * dl : 0.80 + 0.28 * dl;
-      }
-      const tf = t[17] ? terrainFogFar : fogFar;
-      // v20: tris carrying per-vertex colours (clouds) are filled with a
-      // 3-stop vertical gradient through their own vertices — two faces
-      // sharing an edge evaluate (nearly) the same colour along it, so
-      // facet lines vanish. Clipped tris fall back to the flat colour.
-      let fill;
-      if (t.length > 18 && poly.length === 3) {
-        const vs = [[sy1, 18, a[2]], [sy2, 21, b[2]], [sy3, 24, c[2]]].sort((p, q) => p[0] - q[0]);
-        const gr = ctx.createLinearGradient(0, vs[0][0], 0, vs[2][0]);
-        const sp = (vs[2][0] - vs[0][0]) || 1;
-        for (const [y, k, dd] of vs) {
-          const ft = clamp((dd - tf * 0.15) / (tf * 0.85), 0, 0.82);
-          gr.addColorStop((y - vs[0][0]) / sp, `rgb(${Math.round(t[k] * shade * (1 - ft) + fogRGB[0] * ft)},${Math.round(t[k + 1] * shade * (1 - ft) + fogRGB[1] * ft)},${Math.round(t[k + 2] * shade * (1 - ft) + fogRGB[2] * ft)})`);
-        }
-        fill = gr;
-      } else {
-        const fogT = clamp((depth - tf * 0.15) / (tf * 0.85), 0, 0.82);
-        fill = `rgb(${Math.round(t[9] * shade * (1 - fogT) + fogRGB[0] * fogT)},${Math.round(t[10] * shade * (1 - fogT) + fogRGB[1] * fogT)},${Math.round(t[11] * shade * (1 - fogT) + fogRGB[2] * fogT)})`;
-      }
-      // Overlap each triangle ~0.75 px past its edges (v15): canvas AA
-      // leaves 1 px seams at shared edges, which read as a square grid
-      // on flat terrain (the storm-shot beach). Same colour on overlap,
-      // so the painter's order stays correct.
-      const gx = (sx1 + sx2 + sx3) / 3;
-      const gy = (sy1 + sy2 + sy3) / 3;
-      const ax = (Math.abs(sx1 - gx) + Math.abs(sx2 - gx) + Math.abs(sx3 - gx)) / 3;
-      const ay = (Math.abs(sy1 - gy) + Math.abs(sy2 - gy) + Math.abs(sy3 - gy)) / 3;
-      const ex = ax > 0.5 ? 1 + 0.75 / ax : 1;
-      const ey = ay > 0.5 ? 1 + 0.75 / ay : 1;
-      draw.push([gx + (sx1 - gx) * ex, gy + (sy1 - gy) * ey, gx + (sx2 - gx) * ex, gy + (sy2 - gy) * ey, gx + (sx3 - gx) * ex, gy + (sy3 - gy) * ey, depth, fill, 0, 0, t[12]]);
-    }
-  }
-  draw.sort((p, q) => q[6] - p[6]);
-  for (let i = 0; i < draw.length; i += 1) {
-    const d = draw[i];
-    if (d[10] < 1) {
-      ctx.globalAlpha = d[10];
-    }
-    ctx.fillStyle = d[7];
-    ctx.beginPath();
-    ctx.moveTo(d[0], d[1]);
-    ctx.lineTo(d[2], d[3]);
-    ctx.lineTo(d[4], d[5]);
-    ctx.closePath();
-    ctx.fill();
-    if (d[10] < 1) ctx.globalAlpha = 1;
-  }
-  return draw.length;
-}
-
 export function faceNormal(x1, y1, z1, x2, y2, z2, x3, y3, z3) {
   const ux = x2 - x1;
   const uy = y2 - y1;
@@ -206,18 +68,14 @@ export function faceNormal(x1, y1, z1, x2, y2, z2, x3, y3, z3) {
   nz /= len;
   return [nx, ny, nz];
 }
-
 export function tri(mesh, x1, y1, z1, x2, y2, z2, x3, y3, z3, c, alpha = 1, em = 0, tag = 0, vc = 0) {
   const n = faceNormal(x1, y1, z1, x2, y2, z2, x3, y3, z3);
   mesh.push([x1, y1, z1, x2, y2, z2, x3, y3, z3, c[0], c[1], c[2], alpha, n[0], n[1], n[2], em, tag, ...(vc || [])]);
 }
-
 export function quad(mesh, x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4, c, alpha = 1, em = 0) {
   tri(mesh, x1, y1, z1, x2, y2, z2, x3, y3, z3, c, alpha, em);
   tri(mesh, x1, y1, z1, x3, y3, z3, x4, y4, z4, c, alpha, em);
 }
-
-// ---- model transforms ---------------------------------------------------
 export function modelPoint(v, heading, pitch, bank, tx, ty, tz) {
   const [x, y, z] = v;
   const cb = Math.cos(-bank);
@@ -236,7 +94,6 @@ export function modelPoint(v, heading, pitch, bank, tx, ty, tz) {
   const z3 = -x2 * sh + z2 * ch;
   return [x3 + tx, y2 + ty, z3 + tz];
 }
-
 export function xformMesh(model, heading, pitch, bank, tx, ty, tz) {
   const out = [];
   for (const t of model) {
@@ -248,9 +105,6 @@ export function xformMesh(model, heading, pitch, bank, tx, ty, tz) {
   }
   return out;
 }
-
-// ---- mesh helpers -------------------------------------------------------
-
 export function boxAt(mesh, cx, cy, cz, w, h, d, colours) {
   const x0 = cx - w / 2;
   const x1 = cx + w / 2;
@@ -266,7 +120,6 @@ export function boxAt(mesh, cx, cy, cz, w, h, d, colours) {
   quad(mesh, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, c[4]);
   quad(mesh, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, c[5]);
 }
-
 export function latheZ(mesh, profile, segments, c) {
   for (let i = 0; i < profile.length - 1; i += 1) {
     const [z0, r0] = profile[i];
@@ -283,7 +136,6 @@ export function latheZ(mesh, profile, segments, c) {
     }
   }
 }
-
 export function cylinderY(mesh, cx, cy, cz, r, h, segments, c) {
   const y0 = cy - h / 2;
   const y1 = cy + h / 2;
@@ -304,7 +156,6 @@ export function cylinderY(mesh, cx, cy, cz, r, h, segments, c) {
     tri(mesh, T[0], T[1], T[2], cx + r * Math.cos(a1), y1, cz + r * Math.sin(a1), cx + r * Math.cos(a0), y1, cz + r * Math.sin(a0), c);
   }
 }
-
 export function coneY(mesh, cx, cy, cz, r, h, segments, c) {
   const apex = [cx, cy + h, cz];
   for (let j = 0; j < segments; j += 1) {
@@ -315,7 +166,6 @@ export function coneY(mesh, cx, cy, cz, r, h, segments, c) {
     tri(mesh, apex[0], apex[1], apex[2], p1[0], p1[1], p1[2], p0[0], p0[1], p0[2], c);
   }
 }
-
 export function extrudePlanform(mesh, pts, yTop, yBot, cTop, cSide) {
   const n = pts.length;
   for (let i = 1; i < n - 1; i += 1) {
@@ -331,7 +181,6 @@ export function extrudePlanform(mesh, pts, yTop, yBot, cTop, cSide) {
     tri(mesh, a[0], yTop, a[1], a[0], yBot, a[1], b[0], yBot, b[1], cSide);
   }
 }
-
 export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1, em = 0, bot = null, gd = null, sub = 0) {
   const phi = (1 + Math.sqrt(5)) / 2;
   const raw = [
@@ -349,19 +198,11 @@ export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1, em = 0, bot = nul
     [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
     [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
   ];
-  // bot: vertical gradient (bright top, shaded base) — the volume cue in
-  // every cloud reference. gd: [centreY, radius] of the WHOLE cluster, so
-  // the gradient runs across the cloud, not per puff — neighbouring faces
-  // shade almost alike: smooth, no facet lines.
   const g = gd || [cy, r];
-  // v20: per-vertex colours — the renderer gradients each face between its
-  // own vertices, so shared edges match and facet lines disappear.
   const gc = h => mix3(bot, c, sstep(-1.3, 1.1, (h - g[0]) / g[1]));
   const emit = (a, b, cc) => {
     tri(mesh, v[a][0], v[a][1], v[a][2], v[b][0], v[b][1], v[b][2], v[cc][0], v[cc][1], v[cc][2], bot ? gc((v[a][1] + v[b][1] + v[cc][1]) / 3) : c, alpha, em, 0, bot ? [gc(v[a][1]), gc(v[b][1]), gc(v[cc][1])].flat() : 0);
   };
-  // sub: split each face into 4 at the sphere midpoints — 80 small faces
-  // instead of 20 big ones, so the gradient reads smooth, not crystalline.
   const mid = (i, j) => {
     const p = [(v[i][0] + v[j][0]) / 2 - cx, (v[i][1] + v[j][1]) / 2 - cy, (v[i][2] + v[j][2]) / 2 - cz];
     const l = Math.hypot(p[0], p[1], p[2]) || 1;
@@ -374,16 +215,14 @@ export function icosahedron(mesh, cx, cy, cz, r, c, alpha = 1, em = 0, bot = nul
     emit(a, ab, ca); emit(ab, b, bc); emit(ca, bc, cc); emit(ab, bc, ca);
   }
 }
-
-// ---- the jet ------------------------------------------------------------
 let jetModel = null;
 export function buildJet() {
   if (jetModel) return jetModel;
   const m = [];
-  const GREY = [185, 192, 199]; // fuselage / wings / fin, plain grey
-  const GREY_D = [122, 130, 138]; // darker grey (undersides, stores)
-  const DARK = [38, 46, 54]; // nozzle, intake holes
-  const GLASS = [24, 44, 62]; // canopy glass, dark blue-black
+  const GREY = [185, 192, 199];
+  const GREY_D = [122, 130, 138];
+  const DARK = [38, 46, 54];
+  const GLASS = [24, 44, 62];
   latheZ(m, [
     [-6.6, 0.05], [-6.4, 0.30], [-6.0, 0.42], [-5.0, 0.48], [-3.0, 0.55],
     [-1.0, 0.60], [1.0, 0.62], [3.0, 0.55], [4.5, 0.42], [5.5, 0.28],
@@ -434,7 +273,7 @@ export function buildJet() {
     boxAt(m, sx * 4.78, -0.12, -1.95, 0.18, 0.18, 1.9, GREY_D);
     const ax = sx * 4.78;
     const ay = -0.12;
-    const az = -0.82; // nose apex, ahead of the missile body
+    const az = -0.82;
     const bz = -1.0;
     const rr = 0.09;
     const base = [
@@ -504,14 +343,10 @@ export function buildJet() {
   jetModel = m;
   return m;
 }
-
-// ---- world builders -----------------------------------------------------
-
 export function routeDist(world, x, z) {
   if (!world.routePoints || world.routePoints.length < 2) return Infinity;
   return distToRoute(world.routePoints, x, z);
 }
-
 export function runwayFrame(rw, x, z) {
   const dx = x - rw.x;
   const dz = z - rw.z;
@@ -520,14 +355,12 @@ export function runwayFrame(rw, x, z) {
     across: dx * Math.cos(rw.heading) - dz * Math.sin(rw.heading),
   };
 }
-
 function shadeArr(c, f) {
   return [c[0] * f, c[1] * f, c[2] * f];
 }
 function mix3(c1, c2, t) {
   return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
 }
-
 export function terrainFaceColor(world, wx, wz, h) {
   const level = world.level;
   const mot = mottle(wx, wz);
@@ -543,7 +376,7 @@ export function terrainFaceColor(world, wx, wz, h) {
     const f = runwayFrame(rw, wx, wz);
     const aa = Math.abs(f.along);
     const ax = Math.abs(f.across);
-    if (aa < 580 && ax < 13) return shadeArr([88, 88, 92], 1 + mot * 0.05); // strip underlay incl. former overrun
+    if (aa < 580 && ax < 13) return shadeArr([88, 88, 92], 1 + mot * 0.05);
     if (aa < 450 && f.across > 38 && f.across < 52) return shadeArr([66, 66, 70], 1 + mot * 0.06);
     if (aa < 450 && ax >= 11 && ax < 17) {
       const g = mix3([54, 54, 58], [98, 152, 82], sstep(14, 17, ax));
@@ -664,7 +497,6 @@ export function terrainFaceColor(world, wx, wz, h) {
   if (lake > 0) base = mix3(base, shadeArr(mix3([58, 124, 158], [188, 210, 224], sstep(-0.2, 0.4, patch)), 1 + fine * 0.08), lake);
   return fo > 0 ? mix3(base, canopy, fo * 0.85) : base;
 }
-
 export function buildTerrain(world) {
   const mesh = [];
   const leg = world.leg;
@@ -770,7 +602,6 @@ export function buildTerrain(world) {
   }
   return mesh;
 }
-
 export function buildFarTerrain(w) {
   const m = [], L = w.leg, H = w.terrainHeight.bind(w);
   const P = (u, v) => ({ x: L.startX + u * L.rightX + v * L.dirX, z: L.startZ + u * L.rightZ + v * L.dirZ });
@@ -784,7 +615,6 @@ export function buildFarTerrain(w) {
   }
   return m;
 }
-
 function runwayNumber(heading) {
   const deg = ((heading * 180) / Math.PI % 360 + 360) % 360;
   let n = Math.round(deg / 10);
@@ -792,7 +622,6 @@ function runwayNumber(heading) {
   const rec = n + 18 > 36 ? n - 18 : n + 18;
   return [n, rec];
 }
-
 function digitSegs(mesh, cx, cz, digit, rot, y, col) {
   const W = 8;
   const H = 14;
@@ -831,7 +660,6 @@ function digitSegs(mesh, cx, cz, digit, rot, y, col) {
     quad(mesh, pts[0][0], y, pts[0][1], pts[1][0], y, pts[1][1], pts[2][0], y, pts[2][1], pts[3][0], y, pts[3][1], col);
   }
 }
-
 export function buildRunway(world) {
   const mesh = [];
   for (const rw of [world.runwayA, world.runwayB]) {
@@ -904,8 +732,6 @@ export function buildRunway(world) {
   }
   return mesh;
 }
-
-// ---- facades ------------------------------------------------------------
 function facade(mesh, o, u, W, H, cols, rows, mode, glass, frame, seed) {
   const q = (x0, y0, x1, y1, c, off = 0.15, em = 0) => {
     const nx = -u[1] * off;
@@ -916,14 +742,14 @@ function facade(mesh, o, u, W, H, cols, rows, mode, glass, frame, seed) {
     const d = [o[0] + u[0] * x0 + nx, o[1] + y1, o[2] + u[1] * x0 + nz];
     quad(mesh, a[0], a[1], a[2], b[0], b[1], b[2], c2[0], c2[1], c2[2], d[0], d[1], d[2], c, 1, em);
   };
-  if (mode === 0) q(0.8, 1.0, W - 0.8, H - 0.8, glass); // curtain-wall glass field
+  if (mode === 0) q(0.8, 1.0, W - 0.8, H - 0.8, glass);
   const cw = W / cols;
   const rh = H / rows;
-  for (let i = 0; i <= cols; i += 1) q(i * cw - 0.25, 0, i * cw + 0.25, H, frame); // mullions
+  for (let i = 0; i <= cols; i += 1) q(i * cw - 0.25, 0, i * cw + 0.25, H, frame);
   if (mode === 0) {
-    for (let j = 0; j <= rows; j += 1) q(0, j * rh - 0.35, W, j * rh + 0.35, frame); // floor slabs
+    for (let j = 0; j <= rows; j += 1) q(0, j * rh - 0.35, W, j * rh + 0.35, frame);
   } else {
-    for (let j = 0; j < rows; j += 1) q(1.4, j * rh + 1.0, W - 1.4, (j + 1) * rh - 1.0, glass); // ribbon windows
+    for (let j = 0; j < rows; j += 1) q(1.4, j * rh + 1.0, W - 1.4, (j + 1) * rh - 1.0, glass);
   }
   for (let k = 0; k < 3; k += 1) {
     const hx = hash2(seed + k * 17, seed + k * 31);
@@ -934,13 +760,12 @@ function facade(mesh, o, u, W, H, cols, rows, mode, glass, frame, seed) {
       hx > 0.82 ? [220, 232, 255] : [255, 196, 96], 0.3, 1);
   }
 }
-
 function tower(mesh, x, z, gy, w, h, mode, glass, frame, wall, roof, seed) {
   const hw = w / 2;
   boxAt(mesh, x, gy + h / 2, z, w, h, w, [roof, wall, wall, wall, wall, wall]);
   const cols = Math.max(4, Math.min(6, Math.round(w / 5.5)));
   const rows = Math.max(4, Math.min(7, Math.round(h / 6.5)));
-  const y0 = gy + 3; // the facade starts above the dark plinth
+  const y0 = gy + 3;
   facade(mesh, [x + hw, y0, z + hw], [0, -1], w, h - 3, cols, rows, mode, glass, frame, seed);
   facade(mesh, [x - hw, y0, z - hw], [0, 1], w, h - 3, cols, rows, mode, glass, frame, seed + 101);
   facade(mesh, [x - hw, y0, z + hw], [1, 0], w, h - 3, cols, rows, mode, glass, frame, seed + 202);
@@ -967,7 +792,6 @@ function tower(mesh, x, z, gy, w, h, mode, glass, frame, wall, roof, seed) {
     boxAt(mesh, x - hw * 0.35, gy + h + 5, z + hw * 0.3, 0.5, 8, 0.5, [90, 94, 100]);
   }
 }
-
 function buildBuilding(mesh, prop, gy, H, rwA, rwB) {
   const s = prop.s;
   const seed = Math.floor(prop.x) * 7 + Math.floor(prop.z) * 13;
@@ -983,7 +807,7 @@ function buildBuilding(mesh, prop, gy, H, rwA, rwB) {
   const frame = frameTints[Math.floor(h2 * frameTints.length) % frameTints.length];
   const wall = wallTints[Math.floor(h3 * wallTints.length) % wallTints.length];
   const roof = [74, 80, 88];
-  const arch = Math.floor(h1 * 5); // 0 glass, 1 concrete, 2 stepped, 3 twin, 4 podium
+  const arch = Math.floor(h1 * 5);
   const mode = arch === 0 ? 0 : 1;
   boxAt(mesh, prop.x, gy + 1.5, prop.z, w + 1.6, 3, w + 1.6, [58, 62, 68]);
   if (hash2(seed + 91, seed + 93) > 0.4) {
@@ -1033,7 +857,6 @@ function buildBuilding(mesh, prop, gy, H, rwA, rwB) {
     }
   }
 }
-
 export function buildProps(world) {
   const mesh = [];
   const H = world.terrainHeight.bind(world);
@@ -1102,11 +925,7 @@ export function buildProps(world) {
   }
   return mesh;
 }
-
-// Puff table [dx, dy, dz, scale, shade]: six overlapping puffs.
 const PUFFS = [[0, 0, 0, 1, 0], [0.7, -0.18, 0.2, 0.6, -3], [-0.65, -0.12, -0.25, 0.55, -6], [0.25, 0.3, -0.05, 0.45, 2], [-0.3, 0.24, 0.18, 0.38, 1], [0.05, -0.3, 0.05, 0.7, -9], [1.05, -0.05, 0.3, 0.42, -5], [-1.0, 0.05, -0.2, 0.45, -4], [0.15, 0.42, 0.1, 0.4, 3]];
-// Cloud style (v18): user picked ref 3 MSFS deck for every level —
-// [w, h, sz, top, bot]: wide flat layered deck, blue-grey base.
 const CSTY = [[2.4, 0.42, 1.9, [240, 244, 250], [134, 150, 188]]];
 function cloudPuffs(mesh, x, y, z, s, st, alpha) {
   for (const p of PUFFS) {
@@ -1114,7 +933,6 @@ function cloudPuffs(mesh, x, y, z, s, st, alpha) {
     icosahedron(mesh, x + p[0] * st[0] * s, y + p[1] * st[1] * s, z + p[2] * st[0] * s, s * p[3], [st[3][0] + b, st[3][1] + b, st[3][2] + b], alpha, 1, [st[4][0] + b, st[4][1] + b, st[4][2] + b], [y, s], 1);
   }
 }
-
 export function buildClouds(world) {
   const mesh = [];
   const H = world.terrainHeight.bind(world);
@@ -1127,7 +945,7 @@ export function buildClouds(world) {
     const shX = cloud.x - sunDir * (cloud.y - groundH) * 0.45;
     const r = s * 1.5;
     const sh = (k, a) => quad(mesh, shX - r * k, groundH + 2, cloud.z - r * 0.42 * k, shX - r * k, groundH + 2, cloud.z + r * 0.42 * k, shX + r * k, groundH + 2, cloud.z + r * 0.42 * k, shX + r * k, groundH + 2, cloud.z - r * 0.42 * k, [30, 48, 68], a);
-    sh(1.3, 0.02); sh(1, 0.04); // feathered shadow (was single 0.10 quad, read as sea facet)
+    sh(1.3, 0.02); sh(1, 0.04);
   }
   if (world.level.storm) {
     for (const cloud of world.stormClouds) {
@@ -1136,7 +954,6 @@ export function buildClouds(world) {
   }
   return mesh;
 }
-
 export function buildRings(world) {
   const mesh = [];
   const next = world.nextRing();
@@ -1162,9 +979,9 @@ export function buildRings(world) {
     const vx = ny * uz - nz * uy;
     const vy = nz * ux - nx * uz;
     const vz = nx * uy - ny * ux;
-    const f = rings.length > 1 ? i / (rings.length - 1) : 0; // route thirds: red, blue, green
+    const f = rings.length > 1 ? i / (rings.length - 1) : 0;
     let col = ring.passed ? [120, 220, 140] : f < 1 / 3 ? [235, 70, 60] : f < 2 / 3 ? [70, 130, 255] : [70, 190, 100];
-    if (ring === next) col = mix3(col, [255, 255, 255], 0.45); // next ring brighter, still its third's colour
+    if (ring === next) col = mix3(col, [255, 255, 255], 0.45);
     const R = 18;
     const rIn = 15.2;
     const SEG = 16;
@@ -1202,7 +1019,6 @@ export function buildRings(world) {
   }
   return mesh;
 }
-
 let trafficModels = null;
 export function buildTrafficPlane(kind) {
   if (!trafficModels) trafficModels = {};

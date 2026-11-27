@@ -1,20 +1,18 @@
-// Canvas 2D renderer: FIRST-PERSON glass cockpit (737-style) + TPP chase
-// view (C/V toggles). The world is REAL 3D — custom software renderer
-// (gl3d.js): terrain heightmap mesh, low-poly 3D city boxes, FA-50
-// ~500-triangle model, 3D rings.
+// Renderer: FIRST-PERSON glass cockpit (737-style) + TPP chase view
+// (C/V toggles). The world is REAL 3D — WebGL renderer (glweb.js):
+// terrain heightmap mesh, low-poly 3D city boxes, FA-50 model, 3D rings.
 import { FIELD, FOCAL, HORIZON_Y } from './config.js';
 import {
-  makeCam, renderTris, xformMesh, buildJet, buildTerrain, buildFarTerrain, buildRunway,
+  makeCam, hash2, vnoise2, xformMesh, buildJet, buildTerrain, buildFarTerrain, buildRunway,
   buildProps, buildClouds, buildRings, buildTrafficPlane,
 } from './gl3d.js';
-
+import { renderTris } from './glweb.js';
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
 export const SCREEN_PAUSED = 'paused';
 export const SCREEN_OVER = 'over';
 export const VIEW_FPP = 'FPP';
 export const VIEW_TPP = 'TPP';
-
 function lerp(a, b, t) {
   return a + (b - a) * t;
 }
@@ -30,25 +28,6 @@ function clamp(v, lo, hi) {
 function fmt(n, digits = 0) {
   return n.toFixed(digits);
 }
-
-function hash2(ix, iz) {
-  let h = (ix * 374761393 + iz * 668265263) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-function vnoise2(x, z) {
-  const ix = Math.floor(x);
-  const iz = Math.floor(z);
-  const fx = x - ix;
-  const fz = z - iz;
-  const ux = fx * fx * (3 - 2 * fx);
-  const uz = fz * fz * (3 - 2 * fz);
-  const a = hash2(ix, iz);
-  const b = hash2(ix + 1, iz);
-  const c = hash2(ix, iz + 1);
-  const d = hash2(ix + 1, iz + 1);
-  return (a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz) * 2 - 1;
-}
 function darkRgba(rgba, f) {
   const m = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(rgba);
   if (!m) return rgba;
@@ -59,14 +38,12 @@ function hexA(hex, a) {
   if (!m) return hex;
   return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${a})`;
 }
-
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
   const W = FIELD.width;
   const H = FIELD.height;
   const CX = W / 2;
-  const PANEL_Y = 498; // top of the flight deck (windshield ends here)
-
+  const PANEL_Y = 498;
   function drawSky(world, state) {
     const level = world.level;
     const [top, mid, hor] = level.sky;
@@ -104,7 +81,7 @@ export function createRenderer(canvas) {
     drawRidge(state, 0.1, 130, ridgePal[0][0], ridgePal[0][1], false, sunLeft, horizonY);
     drawRidge(state, 0.24, 88, ridgePal[1][0], ridgePal[1][1], false, sunLeft, horizonY);
     drawRidge(state, 0.45, 52, ridgePal[2][0], ridgePal[2][1], false, sunLeft, horizonY);
-    const hz = level.groundFog < 0.5 ? 0.22 : 0.16; // L1 morning haze: wash the ridge green out of the cover shot
+    const hz = level.groundFog < 0.5 ? 0.22 : 0.16;
     const haze = ctx.createLinearGradient(0, horizonY - 115, 0, horizonY + 34);
     haze.addColorStop(0, 'rgba(226,232,238,0)');
     haze.addColorStop(0.25, `rgba(226,232,238,${hz})`);
@@ -114,7 +91,6 @@ export function createRenderer(canvas) {
     ctx.fillRect(0, horizonY - 115, W, 149);
     ctx.restore();
   }
-
   function drawRidge(state, parallax, baseY, color, litColor, snow, sunLeft, horizonY) {
     const off = -state.heading * 900 * parallax - state.x * parallax * 0.4;
     const base = horizonY + 2;
@@ -131,7 +107,7 @@ export function createRenderer(canvas) {
     for (let i = 0; i < pts.length - 1; i += 1) {
       const a = pts[i];
       const b = pts[i + 1];
-      const slope = (b.y - a.y) / (b.x - a.x); // <0: face looks left
+      const slope = (b.y - a.y) / (b.x - a.x);
       const facesLeft = slope < 0;
       const lit = sunLeft ? facesLeft : !facesLeft;
       const top = lit ? litColor : color;
@@ -189,17 +165,6 @@ export function createRenderer(canvas) {
       ctx.fill();
     }
   }
-
-  function seaGlitter(c, level, fx, fogT, wx, wz) {
-    const sunX = level.sun[0];
-    const near = clamp(1 - Math.abs(fx - sunX) / 0.3, 0, 1);
-    if (near <= 0 || fogT > 0.7) return c;
-    const sparkle = vnoise2(wx * 0.09, wz * 0.09);
-    if (sparkle < 0.15) return c;
-    const g = near * (sparkle - 0.15) * 1.8;
-    return [c[0] + 110 * g, c[1] + 115 * g, c[2] + 95 * g];
-  }
-
   function drawRain(state) {
     ctx.strokeStyle = 'rgba(200,214,228,0.4)';
     ctx.lineWidth = 1.4;
@@ -214,15 +179,12 @@ export function createRenderer(canvas) {
     ctx.fillStyle = 'rgba(90,100,112,0.10)';
     ctx.fillRect(0, 0, W, PANEL_Y);
   }
-
   function drawLightning(state) {
     if (state.flashT > 0) {
       ctx.fillStyle = `rgba(255,255,255,${clamp(state.flashT / 0.14, 0, 1) * 0.45})`;
       ctx.fillRect(0, 0, W, H);
     }
   }
-
-  // --- the flight deck: a 737-style glass cockpit, layered for depth -----
   function glassScreen(x, y, w, h) {
     ctx.fillStyle = '#0a0f16';
     ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
@@ -232,7 +194,6 @@ export function createRenderer(canvas) {
     ctx.fillStyle = '#05080d';
     ctx.fillRect(x, y, w, h);
   }
-
   function drawPFD(x, y, w, h, state) {
     glassScreen(x, y, w, h);
     const cx = x + w / 2;
@@ -329,7 +290,6 @@ export function createRenderer(canvas) {
     ctx.fillText(`${String(hdg).padStart(3, '0')}°`, cx, y + h - 5);
     ctx.textAlign = 'left';
   }
-
   function drawND(x, y, w, h, world, state) {
     glassScreen(x, y, w, h);
     ctx.save();
@@ -416,7 +376,6 @@ export function createRenderer(canvas) {
     ctx.fillText(`WIND ${Math.round(Math.hypot(state.windX, state.windZ) * 1.944)} KT`, x + 8, y + h - 6);
     ctx.restore();
   }
-
   function drawEICAS(x, y, w, h, world, state) {
     glassScreen(x, y, w, h);
     const cx = x + w / 2;
@@ -447,7 +406,6 @@ export function createRenderer(canvas) {
     ctx.fillText(`FUEL ${Math.round(state.fuel)}%`, x + 70, y + 30);
     ctx.fillText(`FLAP ${state.onGround ? '15' : '0'}`, x + 70, y + 48);
   }
-
   function drawStandby(x, y, w, h, world, state) {
     glassScreen(x, y, w, h);
     const cx = x + w / 2;
@@ -497,7 +455,6 @@ export function createRenderer(canvas) {
     }
     ctx.textAlign = 'left';
   }
-
   function drawPedestal(world, state) {
     const x0 = 420;
     const x1 = 860;
@@ -560,7 +517,6 @@ export function createRenderer(canvas) {
     ctx.fillText('121.50', 458, yTop + 25);
     ctx.fillText('118.10', 458, yTop + 47);
   }
-
   function drawYoke(cx) {
     ctx.save();
     ctx.strokeStyle = '#20262f';
@@ -592,7 +548,6 @@ export function createRenderer(canvas) {
     ctx.fill();
     ctx.restore();
   }
-
   function drawCockpit(world, state) {
     ctx.fillStyle = '#12181f';
     ctx.beginPath();
@@ -690,7 +645,6 @@ export function createRenderer(canvas) {
     drawYoke(130);
     drawYoke(1150);
   }
-
   function drawEICAS2(x, y, w, h, world, state) {
     glassScreen(x, y, w, h);
     ctx.fillStyle = '#7be495';
@@ -713,7 +667,6 @@ export function createRenderer(canvas) {
       ctx.fill();
     }
   }
-
   function drawHud(world, best, view = VIEW_FPP) {
     const s = world.state;
     const next = world.nextRing();
@@ -824,7 +777,6 @@ export function createRenderer(canvas) {
       ctx.textAlign = 'left';
     }
   }
-
   function panel(x, y, w, h) {
     ctx.fillStyle = 'rgba(8,18,32,0.72)';
     ctx.fillRect(x, y, w, h);
@@ -832,8 +784,6 @@ export function createRenderer(canvas) {
     ctx.lineWidth = 2;
     ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
   }
-
-  // ---- v9: the world as REAL 3D ----------------------------------------
   const worldMeshCache = new WeakMap();
   function hexToRgb(hex) {
     const n = parseInt(hex.slice(1), 16);
@@ -865,9 +815,9 @@ export function createRenderer(canvas) {
       const st = world.state;
       frame.push(...xformMesh(buildJet(), st.heading, st.pitch, st.bank, st.x, st.y, st.z));
     }
-    renderTris(ctx, frame, cam3, sun, fogColor, fogFar, W, H, FOCAL, HORIZON_Y, fogFar * (level.groundFog ?? 0.7));
+    const glCanvas = renderTris(ctx, frame, cam3, sun, fogColor, fogFar, W, H, FOCAL, HORIZON_Y, fogFar * (level.groundFog ?? 0.7));
+    if (glCanvas) ctx.drawImage(glCanvas, 0, 0);
   }
-
   function drawTitle(world, best) {
     const s = world.state;
     drawSky(world, s);
@@ -918,7 +868,6 @@ export function createRenderer(canvas) {
     }
     ctx.textAlign = 'left';
   }
-
   function drawPaused() {
     ctx.fillStyle = 'rgba(8,18,32,0.6)';
     ctx.fillRect(0, 0, W, H);
@@ -933,7 +882,6 @@ export function createRenderer(canvas) {
     ctx.fillText('C / V — cockpit / chase    M — mute', CX, 384);
     ctx.textAlign = 'left';
   }
-
   function drawOver(world, best) {
     const s = world.state;
     ctx.fillStyle = 'rgba(8,18,32,0.15)';
@@ -969,7 +917,6 @@ export function createRenderer(canvas) {
     ctx.fillText('SPACE — fly again  ·  R — restart  ·  1–5 / A — another leg', CX, 294);
     ctx.textAlign = 'left';
   }
-
   function draw(world, screen, best, view = VIEW_FPP) {
     const s = world.state;
     canvas.width = W;
@@ -1017,7 +964,5 @@ export function createRenderer(canvas) {
     if (screen === SCREEN_PAUSED) drawPaused();
     if (screen === SCREEN_OVER) drawOver(world, best);
   }
-
   return { draw };
 }
-
