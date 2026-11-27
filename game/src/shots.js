@@ -71,11 +71,9 @@ function aimAtRunway(world) {
 export function stageShot(name, world) {
   world.reset();
   if (name === 'cover') {
-    // Cover frame: fly until the next ring sits dead ahead in the
-    // windshield (300–900 m out, within ~12° of the heading), capped at
-    // 60 s — the judge's first screenshot must show the blue ring.
-    // Bank < 0.20 (v10: the first render broke at 0.24 and the frame
-    // tilted hard over the city).
+    // Cover: fly until the next ring sits ahead in view
+    // (350-700 m out, within ~12° of hdg), capped at 60 s.
+    // Bank < 0.20. Camera 40 m left, ring clears the centre post.
     const aim = aimAtNextRing(world);
     const limit = Math.floor(60 / SAMPLE);
     for (let i = 0; i < limit; i += 1) {
@@ -93,6 +91,7 @@ export function stageShot(name, world) {
       const events = world.step(SAMPLE, { x: a.sx, y: a.sy }, a.td, false, false);
       if (events & EVENT_OVER) break;
     }
+    world.state.camRight = -40; // cover: camera 40 m left, ring clears the centre post
     return { screen: world.state.over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score, view: 'FPP' };
   }
   if (name === 'tpp') {

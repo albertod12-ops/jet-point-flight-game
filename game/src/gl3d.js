@@ -545,7 +545,7 @@ export function terrainFaceColor(world, wx, wz, h) {
     const ax = Math.abs(f.across);
     if (aa < 450 && ax < 13) return shadeArr([88, 88, 92], 1 + mot * 0.05);
     if (aa < 450 && f.across > 38 && f.across < 52) return shadeArr([66, 66, 70], 1 + mot * 0.06);
-    if (aa >= 450 && aa < 520 && ax < 13) return shadeArr([58, 58, 62], 1 + mot * 0.05);
+    if (aa >= 450 && aa < 520 && ax < 13) return shadeArr([70, 70, 74], 1 + mot * 0.05);
     if (aa < 450 && ax >= 11 && ax < 17) {
       const g = mix3([54, 54, 58], [98, 152, 82], sstep(14, 17, ax));
       return shadeArr(g, 1 + mot * 0.06);
@@ -556,7 +556,7 @@ export function terrainFaceColor(world, wx, wz, h) {
     const wv = Math.sin((wx * 0.021 + wz * 0.013) + mot * 2.4);
     const sp = Math.max(0, vnoise2(wx * 0.09, wz * 0.09) - 0.45) * 0.35;
     const sb = level.storm ? [30, 88, 132] : [40, 118, 178];
-    let c = shadeArr(sb, 1 + fine * 0.05 + mot * 0.10 + wv * 0.07 + sp);
+    let c = shadeArr(sb, Math.max(0.95, 1 + fine * 0.05 + mot * 0.10 + wv * 0.07 + sp));
     if (h > 0.5) {
       const isl = islandAt(wx, wz);
       const rr = isl.d / isl.island.r;
@@ -855,14 +855,10 @@ export function buildRunway(world) {
       quad(local, -11, y + 0.2, az - 11, -11, y + 0.2, az + 11, -4, y + 0.2, az + 11, -4, y + 0.2, az - 11, [240, 240, 235]);
       quad(local, 4, y + 0.2, az - 11, 4, y + 0.2, az + 11, 11, y + 0.2, az + 11, 11, y + 0.2, az - 11, [240, 240, 235]);
     }
-    for (const tz of [-300, 0, 300]) {
-      quad(local, -9, y + 0.2, tz - 11, -9, y + 0.2, tz + 11, -3.5, y + 0.2, tz + 11, -3.5, y + 0.2, tz - 11, [240, 240, 235]);
-      quad(local, 3.5, y + 0.2, tz - 11, 3.5, y + 0.2, tz + 11, 9, y + 0.2, tz + 11, 9, y + 0.2, tz - 11, [240, 240, 235]);
-    }
     for (const pz of [-480, 480]) {
       const z0 = pz < 0 ? -510 : 450;
       const z1 = pz < 0 ? -450 : 510;
-      quad(local, -11, y, z0, -11, y, z1, 11, y, z1, 11, y, z0, shadeArr([58, 58, 62], 1 + motAt(0, pz) * 0.06));
+      quad(local, -11, y, z0, -11, y, z1, 11, y, z1, 11, y, z0, shadeArr([70, 70, 74], 1 + motAt(0, pz) * 0.06));
     }
     for (let s = 0; s < 3; s += 1) {
       const z0 = -450 + s * 300;
@@ -887,7 +883,7 @@ export function buildRunway(world) {
       }
     }
     for (let z = -450 + 70; z < 450 - 50; z += 62) {
-      quad(local, -1.2, y + 0.2, z - 13, -1.2, y + 0.2, z + 13, 1.2, y + 0.2, z + 13, 1.2, y + 0.2, z - 13, [245, 245, 240]);
+      quad(local, -2.0, y + 0.2, z - 13, -2.0, y + 0.2, z + 13, 2.0, y + 0.2, z + 13, 2.0, y + 0.2, z - 13, [245, 245, 240]);
     }
     const [n, rec] = runwayNumber(rw.heading);
     const digits = (num, cz, rot) => {
@@ -1152,7 +1148,7 @@ export function buildClouds(world) {
     const groundH = H(cloud.x, cloud.z);
     const shX = cloud.x - sunDir * (cloud.y - groundH) * 0.45;
     const r = s * 1.5;
-    quad(mesh, shX - r, groundH + 2, cloud.z - r * 0.42, shX - r, groundH + 2, cloud.z + r * 0.42, shX + r, groundH + 2, cloud.z + r * 0.42, shX + r, groundH + 2, cloud.z - r * 0.42, [18, 30, 44], 0.18);
+    quad(mesh, shX - r, groundH + 2, cloud.z - r * 0.42, shX - r, groundH + 2, cloud.z + r * 0.42, shX + r, groundH + 2, cloud.z + r * 0.42, shX + r, groundH + 2, cloud.z - r * 0.42, [30, 48, 68], 0.10);
   }
   if (world.level.storm) {
     for (const cloud of world.stormClouds) {
@@ -1205,10 +1201,10 @@ export function buildRings(world) {
       const o1 = p(a1, R);
       const i0 = p(a0, rIn);
       const i1 = p(a1, rIn);
-      tri(mesh, o0[0], o0[1], o0[2], o1[0], o1[1], o1[2], i1[0], i1[1], i1[2], col);
-      tri(mesh, o0[0], o0[1], o0[2], i1[0], i1[1], i1[2], i0[0], i0[1], i0[2], col);
-      tri(mesh, o0[0], o0[1], o0[2], i1[0], i1[1], i1[2], o1[0], o1[1], o1[2], col);
-      tri(mesh, o0[0], o0[1], o0[2], i0[0], i0[1], i0[2], i1[0], i1[1], i1[2], col);
+      tri(mesh, o0[0], o0[1], o0[2], o1[0], o1[1], o1[2], i1[0], i1[1], i1[2], col, 1, 1);
+      tri(mesh, o0[0], o0[1], o0[2], i1[0], i1[1], i1[2], i0[0], i0[1], i0[2], col, 1, 1);
+      tri(mesh, o0[0], o0[1], o0[2], i1[0], i1[1], i1[2], o1[0], o1[1], o1[2], col, 1, 1);
+      tri(mesh, o0[0], o0[1], o0[2], i0[0], i0[1], i0[2], i1[0], i1[1], i1[2], col, 1, 1);
     }
   }
   const upcoming = rings.filter((r) => !r.passed).slice(0, 3);
